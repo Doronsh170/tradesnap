@@ -1,0 +1,2 @@
+# tradesnap
+Trade logging PWA
