@@ -282,28 +282,12 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
   </div>
 </div>
 
-<!-- ======================= -->
-<!-- FIREBASE MODULE SCRIPT  -->
-<!-- ======================= -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { 
-  getAuth, 
-  GoogleAuthProvider, 
-  signInWithRedirect, 
-  getRedirectResult, 
-  signInWithPopup,
-  setPersistence,
-  browserLocalPersistence,
-  signOut as fbSignOut, 
-  onAuthStateChanged 
-} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  setDoc 
-} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut as fbSignOut, onAuthStateChanged }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, doc, getDoc, setDoc }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAKKoWUiVOdKz_PKAdDwHQjZoaynnS7O-Q",
@@ -313,44 +297,32 @@ const firebaseConfig = {
   messagingSenderId: "321736350081",
   appId: "1:321736350081:web:b5c3fb73642bfd7e9e3080"
 };
-
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-let currentUser = null;
-let saveTimer = null;
+let currentUser = null, saveTimer = null;
 
-// הגדרת שמירה על חיבור פעיל
-setPersistence(auth, browserLocalPersistence);
-
-// כניסה עם גוגל
+// Auth
 document.getElementById('btnGoogle').addEventListener('click', async () => {
-  const provider = new GoogleAuthProvider();
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   try {
-    if (isMobile) {
-      await signInWithRedirect(auth, provider);
+    await setPersistence(auth, browserLocalPersistence);
+    if(isMobile){
+      await signInWithRedirect(auth, new GoogleAuthProvider());
     } else {
-      await signInWithPopup(auth, provider);
+      await signInWithPopup(auth, new GoogleAuthProvider());
     }
-  } catch(e) { 
-    alert('שגיאת התחברות: ' + e.message); 
-  }
+  } catch(e){ alert('שגיאה: ' + e.message); }
 });
+window.doSignOut = async () => { if(confirm('להתנתק?')) await fbSignOut(auth); };
 
-// יציאה
-window.doSignOut = async () => { 
-  if(confirm('להתנתק?')) await fbSignOut(auth); 
-};
-
-// Handle redirect result
+// Handle redirect result first (iOS Safari)
 getRedirectResult(auth).then(r => {
   if(r && r.user) console.log('redirect ok:', r.user.email);
 }).catch(e => console.error('redirect error:', e));
 
-// האזנה למצב המשתמש וטעינת נתונים
 onAuthStateChanged(auth, async user => {
-  if(user) {
+  if(user){
     currentUser = user;
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('appContent').style.display = 'block';
@@ -361,95 +333,54 @@ onAuthStateChanged(auth, async user => {
     currentUser = null;
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('appContent').style.display = 'none';
-    window.trades = []; window.nid = 1; window.knownSyms = []; window.favSyms = [];
+    trades=[]; nid=1; knownSyms=[]; favSyms=[];
   }
 });
 
-// פונקציית טעינה מ-Firestore
-async function loadData() {
+async function loadData(){
   if(!currentUser) return;
   setSyncDot('saving');
   try {
-    const userDocRef = doc(db, 'users', currentUser.uid);
-    const snap = await getDoc(userDocRef);
-    
-    if(snap.exists()) {
+    const snap = await getDoc(doc(db,'users',currentUser.uid));
+    if(snap.exists()){
       const d = snap.data();
-      // סנכרון למשתנים הגלובליים
-      window.trades = d.trades || [];
-      window.nid = d.nid || 1;
-      window.knownSyms = d.knownSyms || [];
-      window.favSyms = d.favSyms || [];
-      window.commType = d.commType || 'pct';
-      
-      if(d.commRate) {
-        const rateEl = document.getElementById('commRate');
-        if(rateEl) rateEl.value = d.commRate;
-      }
+      trades = d.trades || []; nid = d.nid || 1;
+      knownSyms = d.knownSyms || []; favSyms = d.favSyms || [];
+      commType = d.commType || 'pct';
+      if(d.commRate) document.getElementById('commRate').value = d.commRate;
     }
-    
-    // רענון ה-UI (קריאה לפונקציות מהסקריפט השני)
-    if(typeof window.initCommType === 'function') window.initCommType();
-    const symList = document.getElementById('symList');
-    if(symList) symList.innerHTML = window.knownSyms.map(s => `<option value="${s}">`).join('');
-    if(typeof window.renderFavBar === 'function') window.renderFavBar();
-    if(typeof window.render === 'function') window.render();
-    
-    setSyncDot('saved');
-  } catch(e) { 
-    console.error("Error loading:", e);
-    setSyncDot('');
-  }
+  } catch(e){ console.error(e); }
+  initCommType();
+  document.getElementById('symList').innerHTML = knownSyms.map(s=>`<option value="${s}">`).join('');
+  renderFavBar(); render(); setSyncDot('saved');
 }
 
-// פונקציית שמירה אוטומטית ל-Firestore
-window._cloudSave = function() {
+function setSyncDot(s){ document.getElementById('syncDot').className = 'sync-dot ' + s; }
+
+window._cloudSave = function(){
   if(!currentUser) return;
   setSyncDot('saving');
   clearTimeout(saveTimer);
-  
   saveTimer = setTimeout(async () => {
     try {
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      const rateVal = document.getElementById('commRate')?.value || '0.08';
-      
-      await setDoc(userDocRef, {
-        trades: window.trades,
-        nid: window.nid,
-        knownSyms: window.knownSyms,
-        favSyms: window.favSyms,
-        commType: window.commType,
-        commRate: rateVal,
+      await setDoc(doc(db,'users',currentUser.uid), {
+        trades, nid, knownSyms, favSyms, commType,
+        commRate: document.getElementById('commRate').value,
         updatedAt: new Date().toISOString()
-      }, { merge: true });
-      
+      });
       setSyncDot('saved');
-    } catch(e) { 
-      console.error("Error saving:", e);
-      setSyncDot('');
-    }
-  }, 1000);
+    } catch(e){ console.error(e); setSyncDot(''); }
+  }, 800);
 };
-
-function setSyncDot(s) { 
-  const dot = document.getElementById('syncDot');
-  if(dot) dot.className = 'sync-dot ' + s; 
-}
 </script>
-
-<!-- ======================= -->
-<!-- UI LOGIC SCRIPT         -->
-<!-- ======================= -->
 <script>
-// ── Storage keys & Globals ───────────────────────
-// השתמשנו ב-var כדי שהמשתנים יהיו גלובליים (על window) ויהיו נגישים מהמודול של Firebase
+// ── Storage keys ─────────────────────────────────
 const S='tlog7',SN='tlog7_nid',SC='tlog7_comm',SSYM='tlog7_syms',SFAV='tlog7_favs',SCT='tlog7_commtype';
-var trades    = JSON.parse(localStorage.getItem(S)    ||'[]');
-var nid       = parseInt(localStorage.getItem(SN)     ||'1');
-var knownSyms = JSON.parse(localStorage.getItem(SSYM) ||'[]');
-var favSyms   = JSON.parse(localStorage.getItem(SFAV) ||'[]');
-var tab='today', act='buy', editId=null;
-var commType=localStorage.getItem(SCT)||'pct';
+let trades    = JSON.parse(localStorage.getItem(S)    ||'[]');
+let nid       = parseInt(localStorage.getItem(SN)     ||'1');
+let knownSyms = JSON.parse(localStorage.getItem(SSYM) ||'[]');
+let favSyms   = JSON.parse(localStorage.getItem(SFAV) ||'[]');
+let tab='today', act='buy', editId=null;
 
 const todayKey = new Date().toISOString().split('T')[0];
 document.getElementById('hdrDate').textContent =
@@ -457,7 +388,7 @@ document.getElementById('hdrDate').textContent =
 
 const sc=localStorage.getItem(SC);
 if(sc) document.getElementById('commRate').value=sc;
-
+let commType=localStorage.getItem(SCT)||'pct';
 function initCommType(){
   document.getElementById('commRate').value = localStorage.getItem(SC)||(commType==='pct'?'0.08':'1.5');
   document.getElementById('commUnit').textContent = commType==='pct'?'%':'$';
@@ -469,17 +400,9 @@ function initCommType(){
 initCommType();
 
 // ── Persist ───────────────────────────────────────
-function save(){
-  localStorage.setItem(S,JSON.stringify(trades));
-  localStorage.setItem(SN,String(nid));
-  if(window._cloudSave) window._cloudSave();
-}
+function save(){localStorage.setItem(S,JSON.stringify(trades));localStorage.setItem(SN,String(nid));if(window._cloudSave)window._cloudSave();}
 function saveSymbol(sym){
-  if(!knownSyms.includes(sym)){
-    knownSyms.unshift(sym);
-    if(knownSyms.length>50) knownSyms=knownSyms.slice(0,50);
-    localStorage.setItem(SSYM,JSON.stringify(knownSyms));
-  }
+  if(!knownSyms.includes(sym)){knownSyms.unshift(sym);if(knownSyms.length>50)knownSyms=knownSyms.slice(0,50);localStorage.setItem(SSYM,JSON.stringify(knownSyms));}
   document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
 }
 
@@ -488,7 +411,7 @@ function fmt(n,d=0){return(n<0?'-':'')+'$'+Math.abs(n).toLocaleString('en-US',{m
 function fmtDate(k){const[y,m,d]=k.split('-');return`${+d}/${+m}/${y}`}
 function rate(){
   const v=parseFloat(document.getElementById('commRate').value)||0;
-  return commType==='pct'?v/100:null; 
+  return commType==='pct'?v/100:null; // null = fixed per trade
 }
 function calcComm(vol){
   const v=parseFloat(document.getElementById('commRate').value)||0;
@@ -541,9 +464,12 @@ function calcBySymbol(list){
   });
 }
 
+// P&L for a single trade card (based on matched buys/sells for same symbol)
 function tradePnL(t, allTrades) {
-  if(t.act==='buy') return null;
+  if(t.act==='buy') return null; // show P&L only on sell cards
   const symTrades = allTrades.filter(x=>x.sym===t.sym && x.date===t.date);
+  // only trades up to and including this one (by id desc order means earlier = higher id? no, unshift means lower id = later)
+  // just show symbol-level P&L on sell cards
   const buys  = symTrades.filter(x=>x.act==='buy');
   const sells = symTrades.filter(x=>x.act==='sell');
   if(!buys.length||!sells.length) return null;
@@ -566,7 +492,7 @@ function updateMarket(){
   const h=ny.getHours(),m=ny.getMinutes(),day=ny.getDay();
   const mins=h*60+m;
   const isWeekday=day>=1&&day<=5;
-  const isOpen=isWeekday&&mins>=570&&mins<960; 
+  const isOpen=isWeekday&&mins>=570&&mins<960; // 9:30–16:00
   const pill=document.getElementById('marketPill');
   const txt=document.getElementById('marketTxt');
   pill.className='market-pill '+(isOpen?'open':'closed');
@@ -584,14 +510,14 @@ updateMarket();
 setInterval(updateMarket,60000);
 
 // ── Entry actions ─────────────────────────────────
-window.setAct = function(a){
+function setAct(a){
   act=a;
   document.getElementById('btnBuy').className ='act-btn'+(a==='buy'?' on-buy':'');
   document.getElementById('btnSell').className='act-btn'+(a==='sell'?' on-sell':'');
-};
-window.flipAct = function(){setAct(act==='buy'?'sell':'buy');};
+}
+function flipAct(){setAct(act==='buy'?'sell':'buy');}
 
-window.submitTrade = function(){
+function submitTrade(){
   const sym=document.getElementById('iSym').value.trim().toUpperCase();
   const qty=parseFloat(document.getElementById('iQty').value);
   const price=parseFloat(document.getElementById('iPrice').value);
@@ -610,7 +536,7 @@ window.submitTrade = function(){
     saveSymbol(sym);
   }
   save();clearForm();render();
-};
+}
 
 function clearForm(){
   document.getElementById('iSym').value='';
@@ -632,13 +558,13 @@ function startEdit(id){
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
-window.cancelEdit = function(){
+function cancelEdit(){
   editId=null;clearForm();
   document.getElementById('editBanner').style.display='none';
   document.getElementById('addBtn').textContent='הוסף פעולה ＋';
   document.getElementById('entryPanel').classList.remove('editing');
   setAct('buy');
-};
+}
 
 function copyTrade(id){
   const t=trades.find(x=>x.id===id);if(!t)return;
@@ -656,14 +582,14 @@ function shake(id){
   el.style.color='var(--red)';setTimeout(()=>el.style.color='',500);
 }
 
-window.clearTab = function(){
+function clearTab(){
   const msg=tab==='today'?'למחוק את כל פעולות היום?':'למחוק את כל ההיסטוריה?';
   if(!confirm(msg))return;
   trades=tab==='today'?trades.filter(t=>t.date!==todayKey):trades.filter(t=>t.date===todayKey);
   save();render();
-};
+}
 
-window.switchTab = function(t){
+function switchTab(t){
   tab=t;
   document.getElementById('tabToday').classList.toggle('on',t==='today');
   document.getElementById('tabHistory').classList.toggle('on',t==='history');
@@ -671,26 +597,25 @@ window.switchTab = function(t){
   document.getElementById('commRow').style.display=t==='today'?'':'none';
   document.getElementById('barLbl').textContent=t==='today'?'רווח/הפסד היום':'סה"כ היסטוריה';
   render();
-};
+}
 
 // ── Export / Share ────────────────────────────────
-window.exportExcel = function(){
+function exportExcel(){
   const headers=['תאריך','שעה','סימבול','פעולה','כמות','מחיר','ערך כולל','עמלה'];
-  const r = rate();
-  const rows=trades.map(t=>{const vol=t.qty*t.price;return[t.date,t.ts||'',t.sym,t.act==='buy'?'קנייה':'מכירה',t.qty,t.price,vol.toFixed(2),calcComm(vol).toFixed(2)];});
+  const rows=trades.map(t=>{const vol=t.qty*t.price;return[t.date,t.ts||'',t.sym,t.act==='buy'?'קנייה':'מכירה',t.qty,t.price,vol.toFixed(2),(vol*r).toFixed(2)];});
   const csv='\uFEFF'+[headers,...rows].map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
   a.download=`trades_${todayKey}.csv`;a.click();
-};
+}
 
-window.shareWA = function(){
+function shareWA(){
   const td=trades.filter(t=>t.date===todayKey);
   if(!td.length){alert('אין פעולות היום');return;}
   const s=calcStats(td),byS=calcBySymbol(td);
   let msg=`📋 *יומן עסקאות - ${fmtDate(todayKey)}*\n\n`;
   byS.forEach(x=>{
-    msg+=`*${x.sym}* `;
+    msg+=`*${x.sym}*  `;
     if(x.hasClosed) msg+=(x.net>=0?'✅ +':'❌ ')+fmt(Math.abs(x.net));
     else msg+='—';
     if(x.openQty>0) msg+=`  🟡 פתוח: ${x.openQty}`;
@@ -698,18 +623,18 @@ window.shareWA = function(){
   });
   msg+=`\n💰 *נטו: ${s.net>=0?'+':''}${fmt(s.net)}*\n📊 ${td.length} פעולות  |  עמלות: ${fmt(s.comm)}`;
   window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
-};
+}
 
 // ── Favorites ─────────────────────────────────────
 function saveFavs(){localStorage.setItem(SFAV,JSON.stringify(favSyms));}
-window.renderFavBar = function(){
+function renderFavBar(){
   const bar=document.getElementById('favBar');
   if(!favSyms.length){
     bar.innerHTML=`<button class="fav-manage" data-action="open-fav">⭐ הוסף מועדפים</button>`;return;
   }
   bar.innerHTML=favSyms.map(s=>`<button class="fav-chip" data-fav="${s}" data-action="pick-fav">${s}</button>`).join('')
     +`<button class="fav-manage" data-action="open-fav">✏️</button>`;
-};
+}
 function selectFav(sym){
   document.getElementById('iSym').value=sym;
   document.querySelectorAll('.fav-chip').forEach(b=>b.classList.toggle('selected',b.dataset.fav===sym));
@@ -737,11 +662,10 @@ function addFav(){
   if(favSyms.includes(sym)){document.getElementById('favInput').value='';return;}
   if(favSyms.length>=10){alert('מקסימום 10 ניירות מועדפים');return;}
   favSyms.push(sym);saveFavs();
-  if(window._cloudSave) window._cloudSave();
   document.getElementById('favInput').value='';
   renderFavList();renderFavBar();
 }
-function removeFav(i){favSyms.splice(i,1);saveFavs();if(window._cloudSave) window._cloudSave();renderFavList();renderFavBar();}
+function removeFav(i){favSyms.splice(i,1);saveFavs();renderFavList();renderFavBar();}
 
 // ── Render ────────────────────────────────────────
 function cardHTML(t, allTrades){
@@ -791,7 +715,7 @@ function renderSymSummary(list){
   wrap.innerHTML=html;
 }
 
-window.render = function(){
+function render(){
   const listEl=document.getElementById('list');
   let html='';
   if(tab==='today'){
@@ -807,10 +731,12 @@ window.render = function(){
     if(!hist.length){
       html='<div class="empty">אין היסטוריה עדיין<br><span style="font-size:12px;color:#ccc">פעולות היום יועברו לכאן מחר</span></div>';
     } else {
+      // Group by date, then by week
       const byDate={};
       hist.forEach(t=>{if(!byDate[t.date])byDate[t.date]=[];byDate[t.date].push(t);});
       const sortedDates=Object.keys(byDate).sort().reverse();
 
+      // Group dates by week
       const byWeek={};
       sortedDates.forEach(dk=>{const wk=weekKey(dk);if(!byWeek[wk])byWeek[wk]=[];byWeek[wk].push(dk);});
       const sortedWeeks=Object.keys(byWeek).sort().reverse();
@@ -837,7 +763,7 @@ window.render = function(){
     renderBar(hist);
   }
   listEl.innerHTML=html;
-};
+}
 
 function renderBar(list){
   const s=calcStats(list);
@@ -858,10 +784,9 @@ document.addEventListener('click',function(e){
   if(action==='comm-type'){
     commType=btn.getAttribute('data-type');
     localStorage.setItem(SCT,commType);
-    localStorage.removeItem(SC);
+    localStorage.removeItem(SC); // reset to default for new type
     document.getElementById('commRate').value=commType==='pct'?'0.08':'1.5';
     initCommType();
-    if(window._cloudSave) window._cloudSave();
     render();
     return;
   }
@@ -886,12 +811,8 @@ document.addEventListener('click',function(e){
 
 document.getElementById('favModal').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
 document.getElementById('favInput').addEventListener('keydown',e=>{if(e.key==='Enter')addFav();});
-document.getElementById('iPrice').addEventListener('keydown',e=>{if(e.key==='Enter')window.submitTrade();});
-document.getElementById('commRate').addEventListener('input',function(){
-  localStorage.setItem(SC,this.value);
-  if(window._cloudSave) window._cloudSave();
-  render();
-});
+document.getElementById('iPrice').addEventListener('keydown',e=>{if(e.key==='Enter')submitTrade();});
+document.getElementById('commRate').addEventListener('input',function(){localStorage.setItem(SC,this.value);render();});
 
 // ── Init ──────────────────────────────────────────
 document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
