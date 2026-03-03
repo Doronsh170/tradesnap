@@ -284,7 +284,7 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut as fbSignOut, onAuthStateChanged }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getFirestore, doc, getDoc, setDoc }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
@@ -304,10 +304,13 @@ let currentUser = null, saveTimer = null;
 
 // Auth
 document.getElementById('btnGoogle').addEventListener('click', async () => {
-  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  try { await signInWithRedirect(auth, new GoogleAuthProvider()); }
   catch(e){ alert('שגיאה: ' + e.message); }
 });
 window.doSignOut = async () => { if(confirm('להתנתק?')) await fbSignOut(auth); };
+
+// Handle redirect result first (iOS Safari)
+getRedirectResult(auth).catch(e => console.error('redirect error:', e));
 
 onAuthStateChanged(auth, async user => {
   if(user){
