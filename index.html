@@ -9,6 +9,99 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="TradeSnap">
 <meta name="theme-color" content="#0f0f0f">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+// ── Voice Input ───────────────────────────────────
+let recognition = null;
+let isListening = false;
+
+function toggleMic(){
+  if(isListening){ stopMic(); return; }
+  startMic();
+}
+
+function startMic(){
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SpeechRecognition){
+    alert('הדפדפן שלך לא תומך בזיהוי קול. נסה Chrome.');
+    return;
+  }
+  recognition = new SpeechRecognition();
+  recognition.lang = 'he-IL';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 3;
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('micBtn').className = 'mic-btn listening';
+    document.getElementById('micBtn').innerHTML = '<span class="mic-icon">⏹️</span> מאזין... לחץ לעצור';
+    document.getElementById('micStatus').textContent = '🎙️ דבר עכשיו...';
+  };
+
+  recognition.onresult = (e) => {
+    const results = Array.from(e.results[0]).map(r => r.transcript);
+    let parsed = false;
+    for(const text of results){
+      if(parseVoice(text)){ parsed = true; break; }
+    }
+    if(!parsed){
+      document.getElementById('micStatus').textContent = '❌ לא הבנתי — נסה שוב: "קניתי 100 AAPL ב-185"';
+    }
+  };
+
+  recognition.onerror = (e) => {
+    document.getElementById('micStatus').textContent = e.error === 'not-allowed' ? '❌ אנא אפשר גישה למיקרופון' : '❌ שגיאה: ' + e.error;
+    stopMic();
+  };
+
+  recognition.onend = () => { stopMic(); };
+  recognition.start();
+}
+
+function stopMic(){
+  isListening = false;
+  if(recognition) recognition.stop();
+  document.getElementById('micBtn').className = 'mic-btn';
+  document.getElementById('micBtn').innerHTML = '<span class="mic-icon">🎙️</span> דבר לתוך המיקרופון';
+}
+
+function parseVoice(text){
+  document.getElementById('micStatus').textContent = '🔍 שמעתי: "' + text + '"';
+  const t = text.toLowerCase().trim();
+
+  // Detect action: buy/sell
+  const isBuy  = /קני|קנה|קנ|buy|long/.test(t);
+  const isSell = /מכר|מכי|sell|short/.test(t);
+  if(!isBuy && !isSell) return false;
+
+  // Extract numbers
+  const nums = t.match(/[0-9]+\.?[0-9]*/g);
+  if(!nums || nums.length < 2) return false;
+
+  // Extract symbol - look for uppercase-like words or known patterns
+  // Try to find a word that looks like a ticker (letters only, 1-8 chars)
+  const symMatch = text.match(/\b([A-Za-z]{1,8})\b/g);
+  const sym = symMatch ? symMatch[symMatch.length-1].toUpperCase() : '';
+
+  let qty, price;
+  if(nums.length >= 2){
+    qty   = parseFloat(nums[0]);
+    price = parseFloat(nums[nums.length-1]);
+  }
+
+  if(!qty || !price) return false;
+
+  // Fill form
+  if(sym) document.getElementById('iSym').value = sym;
+  document.getElementById('iQty').value = qty;
+  document.getElementById('iPrice').value = price;
+  setAct(isBuy ? 'buy' : 'sell');
+  if(sym) document.querySelectorAll('.fav-chip').forEach(b=>b.classList.toggle('selected',b.dataset.fav===sym||b.textContent===sym));
+
+  document.getElementById('micStatus').textContent = '✅ ' + (isBuy?'קנייה':'מכירה') + ' · ' + (sym||'?') + ' · ' + qty + ' יח׳ · $' + price;
+  return true;
+}
+
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -24,7 +117,7 @@
 html{height:100%}
 body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;min-height:100%;padding-bottom:116px;overscroll-behavior:none}
 
-/* Header */
+/* ── Header ── */
 .hdr{padding:14px 16px 10px;display:flex;align-items:flex-start;justify-content:space-between}
 .hdr-title{font-size:18px;font-weight:700;color:var(--text)}
 .hdr-sub{font-size:11px;color:var(--sub);margin-top:1px}
@@ -35,12 +128,12 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 .market-pill.closed{background:#f3f4f6;color:#aaa}
 .market-pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
 
-/* Tabs */
+/* ── Tabs ── */
 .tabs{margin:0 16px 12px;display:flex;background:#e5e3dc;border-radius:12px;padding:3px;gap:3px}
 .tab{flex:1;padding:9px 0;text-align:center;font-size:13px;font-weight:600;font-family:var(--sans);border:none;background:none;border-radius:9px;color:var(--sub);cursor:pointer;transition:all .15s}
 .tab.on{background:var(--card);color:var(--text);box-shadow:0 1px 5px rgba(0,0,0,.1)}
 
-/* Entry Card */
+/* ── Entry card ── */
 .entry{margin:0 16px 10px;background:var(--card);border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,.06);overflow:hidden}
 .act-row{display:grid;grid-template-columns:1fr auto 1fr}
 .act-btn{padding:14px 0;text-align:center;font-size:15px;font-weight:700;font-family:var(--sans);border:none;cursor:pointer;transition:all .15s;color:#bbb;background:var(--card)}
@@ -48,13 +141,15 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 .act-btn.on-buy{background:var(--green-bg);color:var(--green)}
 .act-btn.on-sell{background:var(--red-bg);color:var(--red)}
 .flip-btn{padding:0 12px;background:var(--bg);border:none;border-left:1px solid var(--border);border-right:1px solid var(--border);font-size:16px;cursor:pointer;color:var(--sub);transition:all .15s}
+.flip-btn:active{background:var(--border);transform:rotate(180deg)}
 
 .edit-banner{background:var(--blue-bg);border-bottom:1px solid #bfdbfe;padding:7px 14px;font-size:12px;color:var(--blue);font-weight:600;display:flex;justify-content:space-between;align-items:center}
 .edit-cancel{background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;font-family:var(--sans);font-weight:600}
 
 .fav-bar{display:flex;gap:6px;padding:8px 14px;overflow-x:auto;scrollbar-width:none;border-top:1px solid var(--border);flex-wrap:wrap}
-.fav-chip{flex-shrink:0;padding:6px 12px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);cursor:pointer}
-.fav-chip.selected{background:var(--text);color:#fff;border-color:var(--text)}
+.fav-bar::-webkit-scrollbar{display:none}
+.fav-chip{flex-shrink:0;padding:6px 12px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);cursor:pointer;transition:all .12s}
+.fav-chip.selected,.fav-chip:active{background:var(--text);color:#fff;border-color:var(--text)}
 .fav-manage{flex-shrink:0;padding:6px 10px;border-radius:20px;border:1.5px dashed var(--border);background:transparent;font-size:12px;color:var(--sub);cursor:pointer}
 
 .fields{border-top:1px solid var(--border)}
@@ -62,32 +157,35 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 .field-label{font-size:12px;color:var(--sub);white-space:nowrap;font-weight:500;min-width:44px}
 .field-input{flex:1;border:none;outline:none;background:transparent;font-family:var(--mono);font-size:20px;font-weight:600;color:var(--text);padding:13px 0;text-transform:uppercase}
 .field-input::placeholder{color:#ccc;font-size:15px;font-weight:400}
-.add-btn{display:block;width:100%;padding:15px;text-align:center;background:var(--text);color:#fff;font-family:var(--sans);font-size:15px;font-weight:700;border:none;cursor:pointer}
+.add-btn{display:block;width:100%;padding:15px;text-align:center;background:var(--text);color:#fff;font-family:var(--sans);font-size:15px;font-weight:700;border:none;cursor:pointer;transition:background .12s}
+.add-btn:active{background:#333}
 .entry.editing .add-btn{background:var(--blue)}
 
-/* Comm row */
+/* ── Comm row ── */
 .comm-row{display:flex;align-items:center;gap:8px;margin:0 16px 12px;font-size:12px;color:var(--sub)}
-.comm-row input{width:52px;font-family:var(--mono);font-size:13px;font-weight:600;border:1.5px solid var(--border);border-radius:8px;padding:5px 8px;text-align:center;outline:none;background:var(--card);color:var(--text)}
+.comm-row input{width:52px;font-family:var(--mono);font-size:13px;font-weight:600;border:1.5px solid var(--border);border-radius:8px;padding:5px 8px;text-align:center;outline:none;background:var(--card);color:var(--text);-webkit-appearance:none}
+.comm-row input:focus{border-color:var(--text)}
 .btn-excel{margin-right:auto;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--sans);color:var(--sub)}
 .btn-wa{background:#25d366;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);color:#fff}
 
-/* Summary */
+/* ── Symbol summary ── */
 .sym-summary{margin:0 16px 12px;background:var(--card);border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
-.sym-summary-hdr{padding:9px 14px;font-size:10px;font-weight:700;color:var(--sub);border-bottom:1px solid var(--border);text-transform:uppercase}
+.sym-summary-hdr{padding:9px 14px;font-size:10px;font-weight:700;color:var(--sub);border-bottom:1px solid var(--border);letter-spacing:.8px;text-transform:uppercase}
 .sym-row{display:flex;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border);gap:8px}
 .sym-row:last-child{border-bottom:none}
 .sym-name{font-family:var(--mono);font-weight:700;font-size:14px;color:var(--text);min-width:54px}
-.sym-pos{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px}
+.sym-pos{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
 .sym-pos.open{background:var(--orange-bg);color:var(--orange)}
 .sym-pos.closed{background:#f3f4f6;color:#999}
 .sym-avg{font-family:var(--mono);font-size:11px;color:var(--sub);flex:1}
 .sym-pnl{font-family:var(--mono);font-size:13px;font-weight:700}
-.sym-pnl.pos{color:var(--green)} .sym-pnl.neg{color:var(--red)}
+.sym-pnl.pos{color:var(--green)} .sym-pnl.neg{color:var(--red)} .sym-pnl.neu{color:var(--sub)}
 
-/* List */
+/* ── Trade cards ── */
 .list{padding:0 16px}
-.tcard{background:var(--card);border-radius:13px;padding:11px 12px;margin-bottom:7px;display:flex;align-items:stretch;gap:9px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
-.tcard-accent{width:4px;border-radius:3px;flex-shrink:0;align-self:stretch}
+.tcard{background:var(--card);border-radius:13px;padding:11px 12px;margin-bottom:7px;display:flex;align-items:stretch;gap:9px;box-shadow:0 1px 4px rgba(0,0,0,.05);animation:pop .15s ease}
+@keyframes pop{from{opacity:0;transform:scale(.97) translateY(-3px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.tcard-accent{width:4px;border-radius:3px;flex-shrink:0;align-self:stretch;min-height:36px}
 .tcard-accent.buy{background:var(--green)} .tcard-accent.sell{background:var(--red)}
 .tcard-body{flex:1;min-width:0}
 .tcard-top{display:flex;align-items:center;gap:7px;margin-bottom:2px}
@@ -97,141 +195,147 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 .tcard-badge.sell{background:var(--red-bg);color:var(--red)}
 .tcard-detail{font-family:var(--mono);font-size:12px;color:var(--sub)}
 .tcard-pnl{font-family:var(--mono);font-size:11px;font-weight:700;margin-top:2px}
-.tcard-pnl.pos{color:var(--green)} .tcard-pnl.neg{color:var(--red)}
-.tcard-right{display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between}
+.tcard-pnl.pos{color:var(--green)} .tcard-pnl.neg{color:var(--red)} .tcard-pnl.neu{color:#ccc}
+.tcard-right{display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between;flex-shrink:0}
 .tcard-vol{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text)}
 .tcard-time{font-family:var(--mono);font-size:10px;color:#bbb}
-.tcard-actions{display:flex;flex-direction:column;gap:4px;justify-content:center}
-.tcard-btn{width:30px;height:30px;border-radius:50%;border:none;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.tcard-actions{display:flex;flex-direction:column;gap:4px;flex-shrink:0;justify-content:center}
+.tcard-btn{width:30px;height:30px;border-radius:50%;border:none;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;transition:all .1s;flex-shrink:0}
 .tcard-btn.edit-btn{background:var(--blue-bg);color:var(--blue)}
+.tcard-btn.copy-btn{background:#f0fdf4;color:var(--green)}
 .tcard-btn.del-btn{background:#f3f4f6;color:#aaa}
-.tcard-btn.del-btn.confirming{background:var(--red-bg);color:var(--red);width:auto;padding:0 8px;border-radius:12px}
+.tcard-btn.del-btn.confirming{background:var(--red-bg);color:var(--red);font-size:10px;width:auto;border-radius:20px;padding:0 8px;white-space:nowrap}
 
-/* Separators */
-.day-sep{display:flex;align-items:center;gap:10px;margin:14px 0 7px}
-.day-sep-date{font-family:var(--mono);font-size:11px;font-weight:600;color:#777}
+/* ── Day / Week separators ── */
+.day-sep{display:flex;align-items:center;gap:10px;margin:14px 0 7px;padding:0 2px}
+.day-sep-date{font-family:var(--mono);font-size:11px;font-weight:600;color:#777;white-space:nowrap}
 .day-sep-line{flex:1;height:1px;background:var(--border)}
-.day-sep-pnl{font-family:var(--mono);font-size:12px;font-weight:700}
-.day-sep-pnl.pos{color:var(--green)} .day-sep-pnl.neg{color:var(--red)}
+.day-sep-pnl{font-family:var(--mono);font-size:12px;font-weight:700;white-space:nowrap}
+.day-sep-pnl.pos{color:var(--green)} .day-sep-pnl.neg{color:var(--red)} .day-sep-pnl.neu{color:var(--sub)}
 
 .week-sep{margin:18px 0 10px;padding:7px 12px;background:#f7f6f2;border-radius:10px;display:flex;align-items:center;justify-content:space-between}
 .week-sep-label{font-size:11px;font-weight:700;color:var(--sub)}
 .week-sep-pnl{font-family:var(--mono);font-size:13px;font-weight:700}
-.week-sep-pnl.pos{color:var(--green)} .week-sep-pnl.neg{color:var(--red)}
+.week-sep-pnl.pos{color:var(--green)} .week-sep-pnl.neg{color:var(--red)} .week-sep-pnl.neu{color:var(--sub)}
 
-/* Bottom bar */
-.bar{position:fixed;bottom:0;left:0;right:0;max-width:430px;margin:0 auto;background:var(--card);border-top:1px solid var(--border);padding:9px 16px 18px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 -4px 20px rgba(0,0,0,.06);z-index:100}
-.bar-pnl-lbl{font-size:10px;color:var(--sub)}
-.bar-pnl-val{font-family:var(--mono);font-size:23px;font-weight:700}
-.bar-pnl-val.pos{color:var(--green)} .bar-pnl-val.neg{color:var(--red)}
+.empty{text-align:center;padding:44px 20px;color:#bbb;font-size:14px;line-height:1.8}
+
+/* ── Bottom bar ── */
+.bar{position:fixed;bottom:0;left:0;right:0;max-width:430px;margin:0 auto;background:var(--card);border-top:1px solid var(--border);padding:9px 16px 18px;display:flex;align-items:center;justify-content:space-between;direction:rtl;box-shadow:0 -4px 20px rgba(0,0,0,.06);z-index:100}
+.bar-pnl{display:flex;flex-direction:column;gap:0}
+.bar-pnl-lbl{font-size:10px;color:var(--sub);font-weight:500}
+.bar-pnl-val{font-family:var(--mono);font-size:23px;font-weight:700;line-height:1.1;transition:color .2s}
+.bar-pnl-val.pos{color:var(--green)} .bar-pnl-val.neg{color:var(--red)} .bar-pnl-val.neu{color:#ccc}
 .bar-stats{display:flex;align-items:center;gap:14px}
-.bar-stat{display:flex;flex-direction:column;align-items:center}
+.bar-stat{display:flex;flex-direction:column;align-items:center;gap:0}
 .bar-stat-lbl{font-size:10px;color:var(--sub)}
 .bar-stat-val{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text)}
-.btn-clear{font-size:11px;color:#bbb;background:none;border:1.5px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer}
+.btn-clear{font-size:11px;color:#bbb;background:none;border:1.5px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;font-family:var(--sans);font-weight:600}
+.btn-clear:active{color:var(--red);border-color:var(--red)}
 
-/* Modal */
+/* ── Modal ── */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:flex-end;justify-content:center}
 .modal{background:var(--card);border-radius:20px 20px 0 0;padding:20px 18px 38px;width:100%;max-width:430px;max-height:88vh;overflow-y:auto}
 .modal-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:3px}
 .modal-sub{font-size:12px;color:var(--sub);margin-bottom:16px}
 .modal-add-row{display:flex;gap:8px;margin-bottom:16px}
-.modal-add-row input{flex:1;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-family:var(--mono);font-size:16px;font-weight:700;outline:none;background:var(--bg)}
-.modal-add-btn{background:var(--text);color:#fff;border:none;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer}
+.modal-add-row input{flex:1;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-family:var(--mono);font-size:16px;font-weight:700;outline:none;text-transform:uppercase;color:var(--text);background:var(--bg)}
+.modal-add-row input:focus{border-color:var(--text)}
+.modal-add-btn{background:var(--text);color:#fff;border:none;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--sans)}
 .fav-list{display:flex;flex-direction:column;gap:7px}
 .fav-item{display:flex;align-items:center;background:var(--bg);border-radius:10px;padding:11px 14px;gap:10px}
 .fav-item-sym{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text);flex:1}
-.fav-item-del{background:none;border:none;font-size:17px;color:#ccc;cursor:pointer}
-.modal-close{width:100%;margin-top:14px;padding:13px;background:var(--bg);border:none;border-radius:12px;font-size:15px;font-weight:700;color:var(--text);cursor:pointer}
+.fav-item-del{background:none;border:none;font-size:17px;color:#ccc;cursor:pointer;padding:0 4px;line-height:1}
+.modal-close{width:100%;margin-top:14px;padding:13px;background:var(--bg);border:none;border-radius:12px;font-size:15px;font-weight:700;color:var(--text);cursor:pointer;font-family:var(--sans)}
 
-.footer-notice {text-align:center;padding:14px 20px 28px;font-size:10px;color:#bbb;font-family:var(--sans);line-height:1.6;}
-.empty{text-align:center;padding:44px 20px;color:#bbb;font-size:14px}
+/* Mic button */
+.mic-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;background:var(--bg);border:none;border-top:1px solid var(--border);font-size:13px;font-weight:600;color:var(--sub);cursor:pointer;font-family:var(--sans);transition:all .15s}
+.mic-btn.listening{background:var(--red-bg);color:var(--red);animation:pulse .8s infinite}
+.mic-btn .mic-icon{font-size:16px}
+.mic-status{text-align:center;font-size:11px;color:var(--sub);padding:4px 16px 8px;min-height:18px}
 </style>
 </head>
 <body>
 
-<div id="appContent">
-  <!-- Header -->
-  <div class="hdr">
-    <div>
-      <div class="hdr-title">📈 TradeSnap</div>
-      <div class="hdr-sub">מאת: דורון שרייבמן</div>
+<!-- Header -->
+<div class="hdr">
+  <div>
+    <div class="hdr-title">📈 TradeSnap</div>
+    <div class="hdr-sub">מאת: דורון שרייבמן</div>
+  </div>
+  <div class="hdr-right">
+    <div class="hdr-date" id="hdrDate"></div>
+    <div class="market-pill closed" id="marketPill"><span class="dot"></span><span id="marketTxt">טוען...</span></div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab on" id="tabToday"   onclick="switchTab('today')">היום</button>
+  <button class="tab"    id="tabHistory" onclick="switchTab('history')">היסטוריה</button>
+</div>
+
+<!-- Entry -->
+<div class="entry" id="entryPanel">
+  <div id="editBanner" class="edit-banner" style="display:none">
+    ✏️ עריכת פעולה
+    <button class="edit-cancel" onclick="cancelEdit()">ביטול</button>
+  </div>
+  <div class="act-row">
+    <button class="act-btn on-buy" id="btnBuy"  onclick="setAct('buy')">▲ קנייה</button>
+    <button class="flip-btn" id="flipBtn" onclick="flipAct()" title="היפוך">⇄</button>
+    <button class="act-btn"        id="btnSell" onclick="setAct('sell')">▼ מכירה</button>
+  </div>
+  <div class="fav-bar" id="favBar"></div>
+  <div class="fields">
+    <div class="field-row">
+      <span class="field-label">סימבול</span>
+      <input class="field-input" id="iSym" placeholder="ONDS" maxlength="8"
+             inputmode="text" autocomplete="off" autocorrect="off" spellcheck="false" list="symList">
+      <datalist id="symList"></datalist>
     </div>
-    <div class="hdr-right">
-      <div class="hdr-date" id="hdrDate"></div>
-      <div class="market-pill closed" id="marketPill"><span class="dot"></span><span id="marketTxt">טוען...</span></div>
+    <div class="field-row">
+      <span class="field-label">כמות</span>
+      <input class="field-input" id="iQty" placeholder="0" type="number" inputmode="decimal" min="1">
+    </div>
+    <div class="field-row">
+      <span class="field-label">מחיר</span>
+      <input class="field-input" id="iPrice" placeholder="0.00" type="number" inputmode="decimal" step="0.001">
     </div>
   </div>
+  <button class="add-btn" id="addBtn" onclick="submitTrade()">הוסף פעולה ＋</button>
+  <button class="mic-btn" id="micBtn" onclick="toggleMic()">
+    <span class="mic-icon">🎙️</span> דבר לתוך המיקרופון
+  </button>
+  <div class="mic-status" id="micStatus"></div>
+</div>
 
-  <!-- Tabs -->
-  <div class="tabs">
-    <button class="tab on" id="tabToday"   onclick="switchTab('today')">היום</button>
-    <button class="tab"    id="tabHistory" onclick="switchTab('history')">היסטוריה</button>
+<!-- Comm row -->
+<div class="comm-row" id="commRow">
+  <span>עמלה:</span>
+  <div style="display:flex;background:#e5e3dc;border-radius:8px;padding:2px;gap:2px">
+    <button id="commPct" data-action="comm-type" data-type="pct" style="padding:4px 10px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);background:var(--card);color:var(--text)">%</button>
+    <button id="commFixed" data-action="comm-type" data-type="fixed" style="padding:4px 10px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);background:transparent;color:var(--sub)">$</button>
   </div>
+  <input type="text" id="commRate" value="0.08" inputmode="decimal" pattern="[0-9]*\.?[0-9]*">
+  <span id="commUnit">%</span>
+  <button class="btn-excel" onclick="exportExcel()">📥 Excel</button>
+  <button class="btn-wa"    onclick="shareWA()">📤 WhatsApp</button>
+</div>
 
-  <!-- Entry -->
-  <div class="entry" id="entryPanel">
-    <div id="editBanner" class="edit-banner" style="display:none">
-      ✏️ עריכת פעולה
-      <button class="edit-cancel" onclick="cancelEdit()">ביטול</button>
-    </div>
-    <div class="act-row">
-      <button class="act-btn on-buy" id="btnBuy"  onclick="setAct('buy')">▲ קנייה</button>
-      <button class="flip-btn" id="flipBtn" onclick="flipAct()" title="היפוך">⇄</button>
-      <button class="act-btn"        id="btnSell" onclick="setAct('sell')">▼ מכירה</button>
-    </div>
-    <div class="fav-bar" id="favBar"></div>
-    <div class="fields">
-      <div class="field-row">
-        <span class="field-label">סימבול</span>
-        <input class="field-input" id="iSym" placeholder="ONDS" maxlength="8" inputmode="text" autocomplete="off" list="symList">
-        <datalist id="symList"></datalist>
-      </div>
-      <div class="field-row">
-        <span class="field-label">כמות</span>
-        <input class="field-input" id="iQty" placeholder="0" type="number" inputmode="decimal">
-      </div>
-      <div class="field-row">
-        <span class="field-label">מחיר</span>
-        <input class="field-input" id="iPrice" placeholder="0.00" type="number" inputmode="decimal" step="0.001">
-      </div>
-    </div>
-    <button class="add-btn" id="addBtn" onclick="submitTrade()">הוסף פעולה ＋</button>
+<div id="symSummary"></div>
+<div class="list" id="list"></div>
+
+<!-- Bottom bar -->
+<div class="bar">
+  <div class="bar-pnl">
+    <div class="bar-pnl-lbl" id="barLbl">רווח/הפסד היום</div>
+    <div class="bar-pnl-val neu" id="barPnl">—</div>
   </div>
-
-  <!-- Comm row -->
-  <div class="comm-row" id="commRow">
-    <span>עמלה:</span>
-    <div style="display:flex;background:#e5e3dc;border-radius:8px;padding:2px;gap:2px">
-      <button id="commPct" data-action="comm-type" data-type="pct" style="padding:4px 10px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;background:var(--card);color:var(--text)">%</button>
-      <button id="commFixed" data-action="comm-type" data-type="fixed" style="padding:4px 10px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;color:var(--sub)">$</button>
-    </div>
-    <input type="text" id="commRate" value="0.08" inputmode="decimal">
-    <span id="commUnit">%</span>
-    <button class="btn-excel" onclick="exportExcel()">📥 Excel</button>
-    <button class="btn-wa"    onclick="shareWA()">📤 WhatsApp</button>
-  </div>
-
-  <div id="symSummary"></div>
-  <div class="list" id="list"></div>
-
-  <!-- Bottom bar -->
-  <div class="bar">
-    <div class="bar-pnl">
-      <div class="bar-pnl-lbl" id="barLbl">רווח/הפסד היום</div>
-      <div class="bar-pnl-val" id="barPnl">—</div>
-    </div>
-    <div class="bar-stats">
-      <div class="bar-stat"><div class="bar-stat-lbl">עמלות</div><div class="bar-stat-val" id="barComm">—</div></div>
-      <div class="bar-stat"><div class="bar-stat-lbl">פעולות</div><div class="bar-stat-val" id="barCount">0</div></div>
-      <button class="btn-clear" onclick="clearTab()">נקה</button>
-    </div>
-  </div>
-
-  <!-- הגילוי הנאות והקרדיט הוחזרו לכאן -->
-  <div class="footer-notice">
-    ⚖️ לצרכי תיעוד בלבד · אינו מהווה ייעוץ השקעות · השימוש באחריות המשתמש<br>
-    פותח על ידי דורון שרייבמן
+  <div class="bar-stats">
+    <div class="bar-stat"><div class="bar-stat-lbl">עמלות</div><div class="bar-stat-val" id="barComm">—</div></div>
+    <div class="bar-stat"><div class="bar-stat-lbl">פעולות</div><div class="bar-stat-val" id="barCount">0</div></div>
+    <button class="btn-clear" onclick="clearTab()">נקה</button>
   </div>
 </div>
 
@@ -241,7 +345,7 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
     <div class="modal-title">⭐ ניירות מועדפים</div>
     <div class="modal-sub">עד 10 ניירות — לחיצה תמלא את הסימבול אוטומטית</div>
     <div class="modal-add-row">
-      <input id="favInput" placeholder="סימבול" maxlength="8">
+      <input id="favInput" placeholder="סימבול" maxlength="8" autocomplete="off" autocorrect="off" spellcheck="false">
       <button class="modal-add-btn" data-action="add-fav">＋ הוסף</button>
     </div>
     <div class="fav-list" id="favList"></div>
@@ -250,7 +354,7 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 </div>
 
 <script>
-// Logic & Storage
+// ── Storage keys ─────────────────────────────────
 const S='tlog7',SN='tlog7_nid',SC='tlog7_comm',SSYM='tlog7_syms',SFAV='tlog7_favs',SCT='tlog7_commtype';
 let trades    = JSON.parse(localStorage.getItem(S)    ||'[]');
 let nid       = parseInt(localStorage.getItem(SN)     ||'1');
@@ -259,38 +363,41 @@ let favSyms   = JSON.parse(localStorage.getItem(SFAV) ||'[]');
 let tab='today', act='buy', editId=null;
 
 const todayKey = new Date().toISOString().split('T')[0];
-document.getElementById('hdrDate').textContent = new Date().toLocaleDateString('he-IL',{day:'numeric',month:'numeric',year:'numeric'});
+document.getElementById('hdrDate').textContent =
+  new Date().toLocaleDateString('he-IL',{day:'numeric',month:'numeric',year:'numeric'});
 
-let commType = localStorage.getItem(SCT) || 'pct';
-function initCommUI(){
-  const sc = localStorage.getItem(SC);
-  if(sc) document.getElementById('commRate').value = sc;
+const sc=localStorage.getItem(SC);
+if(sc) document.getElementById('commRate').value=sc;
+let commType=localStorage.getItem(SCT)||'pct';
+function initCommType(){
+  document.getElementById('commRate').value = localStorage.getItem(SC)||(commType==='pct'?'0.08':'1.5');
   document.getElementById('commUnit').textContent = commType==='pct'?'%':'$';
-  document.getElementById('commPct').style.background = commType==='pct'?'var(--card)':'transparent';
-  document.getElementById('commPct').style.color = commType==='pct'?'var(--text)':'var(--sub)';
-  document.getElementById('commFixed').style.background = commType==='fixed'?'var(--card)':'transparent';
-  document.getElementById('commFixed').style.color = commType==='fixed'?'var(--text)':'var(--sub)';
+  document.getElementById('commPct').style.background    = commType==='pct'?'var(--card)':'transparent';
+  document.getElementById('commPct').style.color         = commType==='pct'?'var(--text)':'var(--sub)';
+  document.getElementById('commFixed').style.background  = commType==='fixed'?'var(--card)':'transparent';
+  document.getElementById('commFixed').style.color       = commType==='fixed'?'var(--text)':'var(--sub)';
+}
+initCommType();
+
+// ── Persist ───────────────────────────────────────
+function save(){localStorage.setItem(S,JSON.stringify(trades));localStorage.setItem(SN,String(nid));}
+function saveSymbol(sym){
+  if(!knownSyms.includes(sym)){knownSyms.unshift(sym);if(knownSyms.length>50)knownSyms=knownSyms.slice(0,50);localStorage.setItem(SSYM,JSON.stringify(knownSyms));}
+  document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
 }
 
-function save(){
-  localStorage.setItem(S, JSON.stringify(trades));
-  localStorage.setItem(SN, String(nid));
-  localStorage.setItem(SSYM, JSON.stringify(knownSyms));
-  localStorage.setItem(SFAV, JSON.stringify(favSyms));
-  localStorage.setItem(SCT, commType);
-  localStorage.setItem(SC, document.getElementById('commRate').value);
-}
-
+// ── Helpers ───────────────────────────────────────
 function fmt(n,d=0){return(n<0?'-':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d})}
 function fmtDate(k){const[y,m,d]=k.split('-');return`${+d}/${+m}/${y}`}
 function rate(){
   const v=parseFloat(document.getElementById('commRate').value)||0;
-  return commType==='pct'?v/100:null;
+  return commType==='pct'?v/100:null; // null = fixed per trade
 }
 function calcComm(vol){
   const v=parseFloat(document.getElementById('commRate').value)||0;
   return commType==='pct'?vol*(v/100):v;
 }
+function weekKey(k){const d=new Date(k);const day=d.getDay();const mon=new Date(d);mon.setDate(d.getDate()-((day+1)%7));return mon.toISOString().split('T')[0];}
 
 function calcStats(list){
   let vol=0,comm=0,gross=0;
@@ -333,24 +440,56 @@ function calcBySymbol(list){
       bq[bi].q-=mq;sq[si].q-=mq;
       if(!bq[bi].q)bi++;if(!sq[si].q)si++;
     }
-    return{sym,openQty,avgBuy,net:gross-vol*(rate()||0),hasClosed:totalSell>0};
+    return{sym,openQty,avgBuy,net:gross-vol*rate(),hasClosed:totalSell>0};
   });
 }
 
-// Market Status
+// P&L for a single trade card (based on matched buys/sells for same symbol)
+function tradePnL(t, allTrades) {
+  if(t.act==='buy') return null; // show P&L only on sell cards
+  const symTrades = allTrades.filter(x=>x.sym===t.sym && x.date===t.date);
+  // only trades up to and including this one (by id desc order means earlier = higher id? no, unshift means lower id = later)
+  // just show symbol-level P&L on sell cards
+  const buys  = symTrades.filter(x=>x.act==='buy');
+  const sells = symTrades.filter(x=>x.act==='sell');
+  if(!buys.length||!sells.length) return null;
+  const bq=buys.map(x=>({...x})),sq=sells.map(x=>({...x}));
+  let bi=0,si=0,gross=0;
+  while(bi<bq.length&&si<sq.length){
+    const mq=Math.min(bq[bi].q,sq[si].q);
+    gross+=mq*(sq[si].p-bq[bi].p);
+    bq[bi].q-=mq;sq[si].q-=mq;
+    if(!bq[bi].q)bi++;if(!sq[si].q)si++;
+  }
+  const vol=symTrades.reduce((a,x)=>a+x.qty*x.price,0);
+  return gross - vol*rate();
+}
+
+// ── Market clock (NYSE) ───────────────────────────
 function updateMarket(){
   const now=new Date();
   const ny=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-  const h=ny.getHours(),m=ny.getMinutes(),day=ny.getDay(),mins=h*60+m;
+  const h=ny.getHours(),m=ny.getMinutes(),day=ny.getDay();
+  const mins=h*60+m;
   const isWeekday=day>=1&&day<=5;
-  const isOpen=isWeekday&&mins>=570&&mins<960;
-  const pill=document.getElementById('marketPill'),txt=document.getElementById('marketTxt');
+  const isOpen=isWeekday&&mins>=570&&mins<960; // 9:30–16:00
+  const pill=document.getElementById('marketPill');
+  const txt=document.getElementById('marketTxt');
   pill.className='market-pill '+(isOpen?'open':'closed');
-  txt.textContent=isOpen?'שוק פתוח':'שוק סגור';
+  if(isOpen){
+    const closeMin=960-mins;
+    txt.textContent=`שוק פתוח · סגירה בעוד ${Math.floor(closeMin/60)}:${String(closeMin%60).padStart(2,'0')}`;
+  } else if(isWeekday&&mins<570){
+    const openMin=570-mins;
+    txt.textContent=`שוק סגור · פתיחה בעוד ${Math.floor(openMin/60)}:${String(openMin%60).padStart(2,'0')}`;
+  } else {
+    txt.textContent='שוק סגור';
+  }
 }
-setInterval(updateMarket,60000);updateMarket();
+updateMarket();
+setInterval(updateMarket,60000);
 
-// Actions
+// ── Entry actions ─────────────────────────────────
 function setAct(a){
   act=a;
   document.getElementById('btnBuy').className ='act-btn'+(a==='buy'?' on-buy':'');
@@ -362,8 +501,11 @@ function submitTrade(){
   const sym=document.getElementById('iSym').value.trim().toUpperCase();
   const qty=parseFloat(document.getElementById('iQty').value);
   const price=parseFloat(document.getElementById('iPrice').value);
-  if(!sym||!qty||!price)return;
-  
+  let ok=true;
+  if(!sym){shake('iSym');ok=false;}
+  if(!qty||qty<=0){shake('iQty');ok=false;}
+  if(!price||price<=0){shake('iPrice');ok=false;}
+  if(!ok)return;
   if(editId!==null){
     const t=trades.find(x=>x.id===editId);
     if(t){t.sym=sym;t.act=act;t.qty=qty;t.price=price;}
@@ -371,7 +513,7 @@ function submitTrade(){
   } else {
     const ts=new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
     trades.unshift({id:nid++,sym,act,qty,price,ts,date:todayKey});
-    if(!knownSyms.includes(sym)){knownSyms.unshift(sym);if(knownSyms.length>50)knownSyms.pop();}
+    saveSymbol(sym);
   }
   save();clearForm();render();
 }
@@ -392,6 +534,7 @@ function startEdit(id){
   document.getElementById('iPrice').value=t.price;
   document.getElementById('editBanner').style.display='flex';
   document.getElementById('addBtn').textContent='שמור שינויים ✓';
+  document.getElementById('entryPanel').classList.add('editing');
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -399,6 +542,31 @@ function cancelEdit(){
   editId=null;clearForm();
   document.getElementById('editBanner').style.display='none';
   document.getElementById('addBtn').textContent='הוסף פעולה ＋';
+  document.getElementById('entryPanel').classList.remove('editing');
+  setAct('buy');
+}
+
+function copyTrade(id){
+  const t=trades.find(x=>x.id===id);if(!t)return;
+  setAct(t.act);
+  document.getElementById('iSym').value=t.sym;
+  document.getElementById('iQty').value=t.qty;
+  document.getElementById('iPrice').value='';
+  document.querySelectorAll('.fav-chip').forEach(b=>b.classList.toggle('selected',b.dataset.fav===t.sym));
+  document.getElementById('iPrice').focus();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function shake(id){
+  const el=document.getElementById(id);
+  el.style.color='var(--red)';setTimeout(()=>el.style.color='',500);
+}
+
+function clearTab(){
+  const msg=tab==='today'?'למחוק את כל פעולות היום?':'למחוק את כל ההיסטוריה?';
+  if(!confirm(msg))return;
+  trades=tab==='today'?trades.filter(t=>t.date!==todayKey):trades.filter(t=>t.date===todayKey);
+  save();render();
 }
 
 function switchTab(t){
@@ -411,57 +579,128 @@ function switchTab(t){
   render();
 }
 
-function render(){
-  const listEl=document.getElementById('list');
-  const td=trades.filter(t=>tab==='today'?t.date===todayKey:t.date!==todayKey);
-  
-  if(tab==='today') renderSymSummary(td);
-  else document.getElementById('symSummary').innerHTML='';
-
-  listEl.innerHTML=td.length===0
-    ?'<div class="empty">אין פעולות להצגה</div>'
-    :td.map(t=>cardHTML(t,td)).join('');
-  
-  renderBar(td);
-  document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
+// ── Export / Share ────────────────────────────────
+function exportExcel(){
+  if(!trades.length){alert('אין פעולות לייצוא');return;}
+  const data = trades.map(t=>({
+    'תאריך': t.date,
+    'שעה': t.ts||'',
+    'סימבול': t.sym,
+    'פעולה': t.act==='buy'?'קנייה':'מכירה',
+    'כמות': t.qty,
+    'מחיר': t.price,
+    'שווי': parseFloat((t.qty*t.price).toFixed(2)),
+    'עמלה': parseFloat(calcComm(t.qty*t.price).toFixed(2))
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [{wch:12},{wch:8},{wch:10},{wch:8},{wch:8},{wch:10},{wch:12},{wch:10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'פעולות');
+  XLSX.writeFile(wb, `TradeSnap_${todayKey}.xlsx`);
 }
 
-function cardHTML(t, all){
+function shareWA(){
+  const td=trades.filter(t=>t.date===todayKey);
+  if(!td.length){alert('אין פעולות היום');return;}
+  const s=calcStats(td),byS=calcBySymbol(td);
+  let msg=`📋 *יומן עסקאות - ${fmtDate(todayKey)}*\n\n`;
+  // Symbol summary
+  byS.forEach(x=>{
+    msg+=`*${x.sym}*  `;
+    if(x.hasClosed) msg+=(x.net>=0?'✅ +':'❌ ')+fmt(Math.abs(x.net));
+    else msg+='⏳ פתוח';
+    if(x.openQty>0) msg+=`  (${x.openQty} יח׳ @ ${x.avgBuy.toFixed(3)})`;
+    msg+='\n';
+  });
+  // Trade detail
+  msg+=`\n📝 *פירוט:*\n`;
+  td.forEach(t=>{
+    const icon=t.act==='buy'?'🟢':'🔴';
+    msg+=`${icon} ${t.sym} ${t.qty}×${t.price} = ${fmt(t.qty*t.price)}\n`;
+  });
+  msg+=`\n💰 *נטו: ${s.net>=0?'+':''}${fmt(s.net)}*\n📊 ${td.length} פעולות  |  עמלות: ${fmt(s.comm)}`;
+  window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
+}
+
+// ── Favorites ─────────────────────────────────────
+function saveFavs(){localStorage.setItem(SFAV,JSON.stringify(favSyms));}
+function renderFavBar(){
+  const bar=document.getElementById('favBar');
+  if(!favSyms.length){
+    bar.innerHTML=`<button class="fav-manage" data-action="open-fav">⭐ הוסף מועדפים</button>`;return;
+  }
+  bar.innerHTML=favSyms.map(s=>`<button class="fav-chip" data-fav="${s}" data-action="pick-fav">${s}</button>`).join('')
+    +`<button class="fav-manage" data-action="open-fav">✏️</button>`;
+}
+function selectFav(sym){
+  document.getElementById('iSym').value=sym;
+  document.querySelectorAll('.fav-chip').forEach(b=>b.classList.toggle('selected',b.dataset.fav===sym));
+  document.getElementById('iQty').focus();
+}
+function openFavModal(){
+  renderFavList();
+  document.getElementById('favModal').style.display='flex';
+  document.getElementById('favInput').value='';
+  setTimeout(()=>document.getElementById('favInput').focus(),100);
+}
+function renderFavList(){
+  const list=document.getElementById('favList');
+  if(!favSyms.length){list.innerHTML='<div style="text-align:center;color:#bbb;padding:20px;font-size:13px">אין מועדפים עדיין</div>';return;}
+  list.innerHTML=favSyms.map((s,i)=>`
+    <div class="fav-item">
+      <span style="color:#ccc;font-size:15px">⠿</span>
+      <span class="fav-item-sym">${s}</span>
+      <button class="fav-item-del" data-action="remove-fav" data-idx="${i}">✕</button>
+    </div>`).join('');
+}
+function addFav(){
+  const sym=document.getElementById('favInput').value.trim().toUpperCase();
+  if(!sym)return;
+  if(favSyms.includes(sym)){document.getElementById('favInput').value='';return;}
+  if(favSyms.length>=10){alert('מקסימום 10 ניירות מועדפים');return;}
+  favSyms.push(sym);saveFavs();
+  document.getElementById('favInput').value='';
+  renderFavList();renderFavBar();
+}
+function removeFav(i){favSyms.splice(i,1);saveFavs();renderFavList();renderFavBar();}
+
+// ── Render ────────────────────────────────────────
+function cardHTML(t, allTrades){
   const vol=t.qty*t.price;
-  const ac=t.act==='buy'?'buy':'sell';
+  const ac=t.act==='buy'?'buy':'sell',al=t.act==='buy'?'▲ קנייה':'▼ מכירה';
+  const pnl=tradePnL(t,allTrades);
+  const pnlHTML=pnl!==null
+    ?`<div class="tcard-pnl ${pnl>0?'pos':pnl<0?'neg':'neu'}">${pnl>=0?'▲ +':'▼ '}${fmt(Math.abs(pnl))}</div>`
+    :'';
   return `<div class="tcard">
     <div class="tcard-accent ${ac}"></div>
     <div class="tcard-body">
-      <div class="tcard-top"><span class="tcard-sym">${t.sym}</span><span class="tcard-badge ${ac}">${t.act==='buy'?'קנייה':'מכירה'}</span></div>
+      <div class="tcard-top">
+        <span class="tcard-sym">${t.sym}</span>
+        <span class="tcard-badge ${ac}">${al}</span>
+      </div>
       <div class="tcard-detail">${t.qty.toLocaleString()} × ${t.price.toFixed(3)}</div>
+      ${pnlHTML}
     </div>
     <div class="tcard-right">
       <div class="tcard-vol">${fmt(vol)}</div>
       <div class="tcard-time">${t.ts||''}</div>
     </div>
     <div class="tcard-actions">
-      <button class="tcard-btn edit-btn" onclick="startEdit(${t.id})">✏️</button>
-      <button class="tcard-btn del-btn" data-id="${t.id}" onclick="handleDel(this, ${t.id})">✕</button>
+      <button class="tcard-btn edit-btn" data-action="edit" data-id="${t.id}">✏️</button>
+      <button class="tcard-btn copy-btn" data-action="copy" data-id="${t.id}">⧉</button>
+      <button class="tcard-btn del-btn"  data-action="del"  data-id="${t.id}">✕</button>
     </div>
   </div>`;
 }
 
-function handleDel(btn, id){
-  if(btn.classList.contains('confirming')){
-    trades=trades.filter(t=>t.id!==id);save();render();
-  } else {
-    btn.classList.add('confirming');btn.textContent='מחק?';
-    setTimeout(()=>{btn.classList.remove('confirming');btn.textContent='✕';},3000);
-  }
-}
-
 function renderSymSummary(list){
   const wrap=document.getElementById('symSummary');
+  if(!list.length){wrap.innerHTML='';return;}
   const byS=calcBySymbol(list);
-  if(!byS.length){wrap.innerHTML='';return;}
   let html=`<div class="sym-summary"><div class="sym-summary-hdr">סיכום לפי נייר</div>`;
   byS.forEach(x=>{
-    const pc=x.net>0?'pos':x.net<0?'neg':'';
+    const pc=x.net>0?'pos':x.net<0?'neg':'neu';
     html+=`<div class="sym-row">
       <span class="sym-name">${x.sym}</span>
       ${x.openQty>0?`<span class="sym-pos open">פתוח ${x.openQty}</span>`:`<span class="sym-pos closed">סגור</span>`}
@@ -469,7 +708,58 @@ function renderSymSummary(list){
       <span class="sym-pnl ${pc}">${x.hasClosed?(x.net>=0?'+':'')+fmt(x.net):'—'}</span>
     </div>`;
   });
-  wrap.innerHTML=html+'</div>';
+  html+='</div>';
+  wrap.innerHTML=html;
+}
+
+function render(){
+  const listEl=document.getElementById('list');
+  let html='';
+  if(tab==='today'){
+    const td=trades.filter(t=>t.date===todayKey);
+    renderSymSummary(td);
+    html=td.length===0
+      ?'<div class="empty">הכנס את הפעולה הראשונה 👆</div>'
+      :td.map(t=>cardHTML(t,td)).join('');
+    renderBar(td);
+  } else {
+    document.getElementById('symSummary').innerHTML='';
+    const hist=trades.filter(t=>t.date!==todayKey);
+    if(!hist.length){
+      html='<div class="empty">אין היסטוריה עדיין<br><span style="font-size:12px;color:#ccc">פעולות היום יועברו לכאן מחר</span></div>';
+    } else {
+      // Group by date, then by week
+      const byDate={};
+      hist.forEach(t=>{if(!byDate[t.date])byDate[t.date]=[];byDate[t.date].push(t);});
+      const sortedDates=Object.keys(byDate).sort().reverse();
+
+      // Group dates by week
+      const byWeek={};
+      sortedDates.forEach(dk=>{const wk=weekKey(dk);if(!byWeek[wk])byWeek[wk]=[];byWeek[wk].push(dk);});
+      const sortedWeeks=Object.keys(byWeek).sort().reverse();
+
+      sortedWeeks.forEach(wk=>{
+        const weekDates=byWeek[wk];
+        const weekTrades=weekDates.flatMap(d=>byDate[d]);
+        const ws=calcStats(weekTrades);
+        const wpc=ws.net>0?'pos':ws.net<0?'neg':'neu';
+        const wStart=fmtDate(weekDates[weekDates.length-1]);
+        const wEnd=fmtDate(weekDates[0]);
+        html+=`<div class="week-sep">
+          <span class="week-sep-label">שבוע ${wStart} – ${wEnd}</span>
+          <span class="week-sep-pnl ${wpc}">${ws.net>=0?'+':''}${fmt(ws.net)}</span>
+        </div>`;
+        weekDates.forEach(dk=>{
+          const dl=byDate[dk],s=calcStats(dl);
+          const pc=s.net>0?'pos':s.net<0?'neg':'neu';
+          html+=`<div class="day-sep"><span class="day-sep-date">${fmtDate(dk)}</span><span class="day-sep-line"></span><span class="day-sep-pnl ${pc}">${s.net>=0?'+':''}${fmt(s.net)}</span></div>`;
+          html+=dl.map(t=>cardHTML(t,dl)).join('');
+        });
+      });
+    }
+    renderBar(hist);
+  }
+  listEl.innerHTML=html;
 }
 
 function renderBar(list){
@@ -477,41 +767,147 @@ function renderBar(list){
   document.getElementById('barCount').textContent=s.count;
   document.getElementById('barComm').textContent=s.count?fmt(s.comm):'—';
   const el=document.getElementById('barPnl');
-  el.textContent=s.count?(s.net>=0?'+':'')+fmt(s.net):'—';
-  el.className='bar-pnl-val '+(s.net>0?'pos':s.net<0?'neg':'');
+  if(!s.count){el.textContent='—';el.className='bar-pnl-val neu';return;}
+  el.textContent=(s.net>=0?'+':'')+fmt(s.net);
+  el.className='bar-pnl-val '+(s.net>0?'pos':s.net<0?'neg':'neu');
 }
 
-// Favs
-function renderFavBar(){
-  const bar=document.getElementById('favBar');
-  bar.innerHTML=favSyms.map(s=>`<button class="fav-chip" onclick="selectFav('${s}')">${s}</button>`).join('')
-    +`<button class="fav-manage" onclick="openFavModal()">⭐</button>`;
-}
-function selectFav(s){document.getElementById('iSym').value=s;document.getElementById('iQty').focus();}
-function openFavModal(){
-  document.getElementById('favModal').style.display='flex';
-  const list=document.getElementById('favList');
-  list.innerHTML=favSyms.map((s,i)=>`<div class="fav-item"><span class="fav-item-sym">${s}</span><button class="fav-item-del" onclick="removeFav(${i})">✕</button></div>`).join('');
-}
-function addFav(){
-  const s=document.getElementById('favInput').value.trim().toUpperCase();
-  if(!s||favSyms.includes(s))return;
-  favSyms.push(s);save();document.getElementById('favInput').value='';openFavModal();renderFavBar();
-}
-function removeFav(i){favSyms.splice(i,1);save();openFavModal();renderFavBar();}
+// ── Event delegation ──────────────────────────────
+document.addEventListener('click',function(e){
+  const btn=e.target.closest('[data-action]');
+  if(!btn)return;
+  const action=btn.getAttribute('data-action');
 
-// Init
-initCommUI();
+  if(action==='comm-type'){
+    commType=btn.getAttribute('data-type');
+    localStorage.setItem(SCT,commType);
+    localStorage.removeItem(SC); // reset to default for new type
+    document.getElementById('commRate').value=commType==='pct'?'0.08':'1.5';
+    initCommType();
+    render();
+    return;
+  }
+  if(action==='open-fav'){openFavModal();return;}
+  if(action==='close-fav'){document.getElementById('favModal').style.display='none';return;}
+  if(action==='add-fav'){addFav();return;}
+  if(action==='pick-fav'){selectFav(btn.getAttribute('data-fav'));return;}
+  if(action==='remove-fav'){removeFav(parseInt(btn.getAttribute('data-idx')));return;}
+
+  const id=parseInt(btn.getAttribute('data-id'));
+  if(action==='edit'){startEdit(id);return;}
+  if(action==='copy'){copyTrade(id);return;}
+  if(action==='del'){
+    if(btn.classList.contains('confirming')){
+      trades=trades.filter(t=>t.id!==id);save();render();
+    } else {
+      btn.classList.add('confirming');btn.textContent='מחק?';
+      setTimeout(()=>{btn.classList.remove('confirming');btn.textContent='✕';},3000);
+    }
+  }
+});
+
+document.getElementById('favModal').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
+document.getElementById('favInput').addEventListener('keydown',e=>{if(e.key==='Enter')addFav();});
+document.getElementById('iPrice').addEventListener('keydown',e=>{if(e.key==='Enter')submitTrade();});
+document.getElementById('commRate').addEventListener('input',function(){localStorage.setItem(SC,this.value);render();});
+
+// ── Init ──────────────────────────────────────────
+document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
 renderFavBar();
 render();
 
-// Event Listeners
-document.querySelectorAll('[data-action="comm-type"]').forEach(b=>{
-  b.onclick=()=>{commType=b.dataset.type;initCommUI();save();render();};
-});
-document.querySelector('[data-action="add-fav"]').onclick=addFav;
-document.querySelector('[data-action="close-fav"]').onclick=()=>document.getElementById('favModal').style.display='none';
-document.getElementById('commRate').oninput=()=>{save();render();};
+// ── Voice Input ───────────────────────────────────
+let recognition = null;
+let isListening = false;
+
+function toggleMic(){
+  if(isListening){ stopMic(); return; }
+  startMic();
+}
+
+function startMic(){
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SpeechRecognition){
+    alert('הדפדפן שלך לא תומך בזיהוי קול. נסה Chrome.');
+    return;
+  }
+  recognition = new SpeechRecognition();
+  recognition.lang = 'he-IL';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 3;
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('micBtn').className = 'mic-btn listening';
+    document.getElementById('micBtn').innerHTML = '<span class="mic-icon">⏹️</span> מאזין... לחץ לעצור';
+    document.getElementById('micStatus').textContent = '🎙️ דבר עכשיו...';
+  };
+
+  recognition.onresult = (e) => {
+    const results = Array.from(e.results[0]).map(r => r.transcript);
+    let parsed = false;
+    for(const text of results){
+      if(parseVoice(text)){ parsed = true; break; }
+    }
+    if(!parsed){
+      document.getElementById('micStatus').textContent = '❌ לא הבנתי — נסה שוב: "קניתי 100 AAPL ב-185"';
+    }
+  };
+
+  recognition.onerror = (e) => {
+    document.getElementById('micStatus').textContent = e.error === 'not-allowed' ? '❌ אנא אפשר גישה למיקרופון' : '❌ שגיאה: ' + e.error;
+    stopMic();
+  };
+
+  recognition.onend = () => { stopMic(); };
+  recognition.start();
+}
+
+function stopMic(){
+  isListening = false;
+  if(recognition) recognition.stop();
+  document.getElementById('micBtn').className = 'mic-btn';
+  document.getElementById('micBtn').innerHTML = '<span class="mic-icon">🎙️</span> דבר לתוך המיקרופון';
+}
+
+function parseVoice(text){
+  document.getElementById('micStatus').textContent = '🔍 שמעתי: "' + text + '"';
+  const t = text.toLowerCase().trim();
+
+  // Detect action: buy/sell
+  const isBuy  = /קני|קנה|קנ|buy|long/.test(t);
+  const isSell = /מכר|מכי|sell|short/.test(t);
+  if(!isBuy && !isSell) return false;
+
+  // Extract numbers
+  const nums = t.match(/[0-9]+\.?[0-9]*/g);
+  if(!nums || nums.length < 2) return false;
+
+  // Extract symbol - look for uppercase-like words or known patterns
+  // Try to find a word that looks like a ticker (letters only, 1-8 chars)
+  const symMatch = text.match(/\b([A-Za-z]{1,8})\b/g);
+  const sym = symMatch ? symMatch[symMatch.length-1].toUpperCase() : '';
+
+  let qty, price;
+  if(nums.length >= 2){
+    qty   = parseFloat(nums[0]);
+    price = parseFloat(nums[nums.length-1]);
+  }
+
+  if(!qty || !price) return false;
+
+  // Fill form
+  if(sym) document.getElementById('iSym').value = sym;
+  document.getElementById('iQty').value = qty;
+  document.getElementById('iPrice').value = price;
+  setAct(isBuy ? 'buy' : 'sell');
+  if(sym) document.querySelectorAll('.fav-chip').forEach(b=>b.classList.toggle('selected',b.dataset.fav===sym||b.textContent===sym));
+
+  document.getElementById('micStatus').textContent = '✅ ' + (isBuy?'קנייה':'מכירה') + ' · ' + (sym||'?') + ' · ' + qty + ' יח׳ · $' + price;
+  return true;
+}
+
 </script>
+<div style="text-align:center;padding:14px 20px 8px;font-size:10px;color:#bbb;font-family:var(--sans);line-height:1.6;">⚖️ לצרכי תיעוד בלבד · אינו מהווה ייעוץ השקעות · השימוש באחריות המשתמש<br>פותח על ידי דורון שרייבמן</div>
 </body>
 </html>
