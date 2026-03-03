@@ -9,99 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="TradeSnap">
 <meta name="theme-color" content="#0f0f0f">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-// ── Voice Input ───────────────────────────────────
-let recognition = null;
-let isListening = false;
-
-function toggleMic(){
-  if(isListening){ stopMic(); return; }
-  startMic();
-}
-
-function startMic(){
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SpeechRecognition){
-    alert('הדפדפן שלך לא תומך בזיהוי קול. נסה Chrome.');
-    return;
-  }
-  recognition = new SpeechRecognition();
-  recognition.lang = 'he-IL';
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 3;
-
-  recognition.onstart = () => {
-    isListening = true;
-    document.getElementById('micBtn').className = 'mic-btn listening';
-    document.getElementById('micBtn').innerHTML = '<span class="mic-icon">⏹️</span> מאזין... לחץ לעצור';
-    document.getElementById('micStatus').textContent = '🎙️ דבר עכשיו...';
-  };
-
-  recognition.onresult = (e) => {
-    const results = Array.from(e.results[0]).map(r => r.transcript);
-    let parsed = false;
-    for(const text of results){
-      if(parseVoice(text)){ parsed = true; break; }
-    }
-    if(!parsed){
-      document.getElementById('micStatus').textContent = '❌ לא הבנתי — נסה שוב: "קניתי 100 AAPL ב-185"';
-    }
-  };
-
-  recognition.onerror = (e) => {
-    document.getElementById('micStatus').textContent = e.error === 'not-allowed' ? '❌ אנא אפשר גישה למיקרופון' : '❌ שגיאה: ' + e.error;
-    stopMic();
-  };
-
-  recognition.onend = () => { stopMic(); };
-  recognition.start();
-}
-
-function stopMic(){
-  isListening = false;
-  if(recognition) recognition.stop();
-  document.getElementById('micBtn').className = 'mic-btn';
-  document.getElementById('micBtn').innerHTML = '<span class="mic-icon">🎙️</span> דבר לתוך המיקרופון';
-}
-
-function parseVoice(text){
-  document.getElementById('micStatus').textContent = '🔍 שמעתי: "' + text + '"';
-  const t = text.toLowerCase().trim();
-
-  // Detect action: buy/sell
-  const isBuy  = /קני|קנה|קנ|buy|long/.test(t);
-  const isSell = /מכר|מכי|sell|short/.test(t);
-  if(!isBuy && !isSell) return false;
-
-  // Extract numbers
-  const nums = t.match(/[0-9]+\.?[0-9]*/g);
-  if(!nums || nums.length < 2) return false;
-
-  // Extract symbol - look for uppercase-like words or known patterns
-  // Try to find a word that looks like a ticker (letters only, 1-8 chars)
-  const symMatch = text.match(/\b([A-Za-z]{1,8})\b/g);
-  const sym = symMatch ? symMatch[symMatch.length-1].toUpperCase() : '';
-
-  let qty, price;
-  if(nums.length >= 2){
-    qty   = parseFloat(nums[0]);
-    price = parseFloat(nums[nums.length-1]);
-  }
-
-  if(!qty || !price) return false;
-
-  // Fill form
-  if(sym) document.getElementById('iSym').value = sym;
-  document.getElementById('iQty').value = qty;
-  document.getElementById('iPrice').value = price;
-  setAct(isBuy ? 'buy' : 'sell');
-  if(sym) document.querySelectorAll('.fav-chip').forEach(b=>b.classList.toggle('selected',b.dataset.fav===sym||b.textContent===sym));
-
-  document.getElementById('micStatus').textContent = '✅ ' + (isBuy?'קנייה':'מכירה') + ' · ' + (sym||'?') + ' · ' + qty + ' יח׳ · $' + price;
-  return true;
-}
-
-</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -247,12 +155,6 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 .fav-item-sym{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text);flex:1}
 .fav-item-del{background:none;border:none;font-size:17px;color:#ccc;cursor:pointer;padding:0 4px;line-height:1}
 .modal-close{width:100%;margin-top:14px;padding:13px;background:var(--bg);border:none;border-radius:12px;font-size:15px;font-weight:700;color:var(--text);cursor:pointer;font-family:var(--sans)}
-
-/* Mic button */
-.mic-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;background:var(--bg);border:none;border-top:1px solid var(--border);font-size:13px;font-weight:600;color:var(--sub);cursor:pointer;font-family:var(--sans);transition:all .15s}
-.mic-btn.listening{background:var(--red-bg);color:var(--red);animation:pulse .8s infinite}
-.mic-btn .mic-icon{font-size:16px}
-.mic-status{text-align:center;font-size:11px;color:var(--sub);padding:4px 16px 8px;min-height:18px}
 </style>
 </head>
 <body>
@@ -304,10 +206,6 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
     </div>
   </div>
   <button class="add-btn" id="addBtn" onclick="submitTrade()">הוסף פעולה ＋</button>
-  <button class="mic-btn" id="micBtn" onclick="toggleMic()">
-    <span class="mic-icon">🎙️</span> דבר לתוך המיקרופון
-  </button>
-  <div class="mic-status" id="micStatus"></div>
 </div>
 
 <!-- Comm row -->
@@ -815,98 +713,6 @@ document.getElementById('commRate').addEventListener('input',function(){localSto
 document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
 renderFavBar();
 render();
-
-// ── Voice Input ───────────────────────────────────
-let recognition = null;
-let isListening = false;
-
-function toggleMic(){
-  if(isListening){ stopMic(); return; }
-  startMic();
-}
-
-function startMic(){
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SpeechRecognition){
-    alert('הדפדפן שלך לא תומך בזיהוי קול. נסה Chrome.');
-    return;
-  }
-  recognition = new SpeechRecognition();
-  recognition.lang = 'he-IL';
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 3;
-
-  recognition.onstart = () => {
-    isListening = true;
-    document.getElementById('micBtn').className = 'mic-btn listening';
-    document.getElementById('micBtn').innerHTML = '<span class="mic-icon">⏹️</span> מאזין... לחץ לעצור';
-    document.getElementById('micStatus').textContent = '🎙️ דבר עכשיו...';
-  };
-
-  recognition.onresult = (e) => {
-    const results = Array.from(e.results[0]).map(r => r.transcript);
-    let parsed = false;
-    for(const text of results){
-      if(parseVoice(text)){ parsed = true; break; }
-    }
-    if(!parsed){
-      document.getElementById('micStatus').textContent = '❌ לא הבנתי — נסה שוב: "קניתי 100 AAPL ב-185"';
-    }
-  };
-
-  recognition.onerror = (e) => {
-    document.getElementById('micStatus').textContent = e.error === 'not-allowed' ? '❌ אנא אפשר גישה למיקרופון' : '❌ שגיאה: ' + e.error;
-    stopMic();
-  };
-
-  recognition.onend = () => { stopMic(); };
-  recognition.start();
-}
-
-function stopMic(){
-  isListening = false;
-  if(recognition) recognition.stop();
-  document.getElementById('micBtn').className = 'mic-btn';
-  document.getElementById('micBtn').innerHTML = '<span class="mic-icon">🎙️</span> דבר לתוך המיקרופון';
-}
-
-function parseVoice(text){
-  document.getElementById('micStatus').textContent = '🔍 שמעתי: "' + text + '"';
-  const t = text.toLowerCase().trim();
-
-  // Detect action: buy/sell
-  const isBuy  = /קני|קנה|קנ|buy|long/.test(t);
-  const isSell = /מכר|מכי|sell|short/.test(t);
-  if(!isBuy && !isSell) return false;
-
-  // Extract numbers
-  const nums = t.match(/[0-9]+\.?[0-9]*/g);
-  if(!nums || nums.length < 2) return false;
-
-  // Extract symbol - look for uppercase-like words or known patterns
-  // Try to find a word that looks like a ticker (letters only, 1-8 chars)
-  const symMatch = text.match(/\b([A-Za-z]{1,8})\b/g);
-  const sym = symMatch ? symMatch[symMatch.length-1].toUpperCase() : '';
-
-  let qty, price;
-  if(nums.length >= 2){
-    qty   = parseFloat(nums[0]);
-    price = parseFloat(nums[nums.length-1]);
-  }
-
-  if(!qty || !price) return false;
-
-  // Fill form
-  if(sym) document.getElementById('iSym').value = sym;
-  document.getElementById('iQty').value = qty;
-  document.getElementById('iPrice').value = price;
-  setAct(isBuy ? 'buy' : 'sell');
-  if(sym) document.querySelectorAll('.fav-chip').forEach(b=>b.classList.toggle('selected',b.dataset.fav===sym||b.textContent===sym));
-
-  document.getElementById('micStatus').textContent = '✅ ' + (isBuy?'קנייה':'מכירה') + ' · ' + (sym||'?') + ' · ' + qty + ' יח׳ · $' + price;
-  return true;
-}
-
 </script>
 <div style="text-align:center;padding:14px 20px 8px;font-size:10px;color:#bbb;font-family:var(--sans);line-height:1.6;">⚖️ לצרכי תיעוד בלבד · אינו מהווה ייעוץ השקעות · השימוש באחריות המשתמש<br>פותח על ידי דורון שרייבמן</div>
 </body>
