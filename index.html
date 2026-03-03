@@ -210,8 +210,12 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 <!-- Comm row -->
 <div class="comm-row" id="commRow">
   <span>עמלה:</span>
-  <input type="text" id="commRate" value="0.08" inputmode="decimal" pattern="[0-9]*.?[0-9]*">
-  <span>%</span>
+  <div style="display:flex;background:#e5e3dc;border-radius:8px;padding:2px;gap:2px">
+    <button id="commPct" data-action="comm-type" data-type="pct" style="padding:4px 10px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);background:var(--card);color:var(--text)">%</button>
+    <button id="commFixed" data-action="comm-type" data-type="fixed" style="padding:4px 10px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);background:transparent;color:var(--sub)">$</button>
+  </div>
+  <input type="text" id="commRate" value="0.08" inputmode="decimal" pattern="[0-9]*\.?[0-9]*">
+  <span id="commUnit">%</span>
   <button class="btn-excel" onclick="exportExcel()">📥 Excel</button>
   <button class="btn-wa"    onclick="shareWA()">📤 WhatsApp</button>
 </div>
@@ -248,7 +252,7 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 
 <script>
 // ── Storage keys ─────────────────────────────────
-const S='tlog7',SN='tlog7_nid',SC='tlog7_comm',SSYM='tlog7_syms',SFAV='tlog7_favs';
+const S='tlog7',SN='tlog7_nid',SC='tlog7_comm',SSYM='tlog7_syms',SFAV='tlog7_favs',SCT='tlog7_commtype';
 let trades    = JSON.parse(localStorage.getItem(S)    ||'[]');
 let nid       = parseInt(localStorage.getItem(SN)     ||'1');
 let knownSyms = JSON.parse(localStorage.getItem(SSYM) ||'[]');
@@ -261,6 +265,16 @@ document.getElementById('hdrDate').textContent =
 
 const sc=localStorage.getItem(SC);
 if(sc) document.getElementById('commRate').value=sc;
+let commType=localStorage.getItem(SCT)||'pct';
+function initCommType(){
+  document.getElementById('commRate').value = localStorage.getItem(SC)||(commType==='pct'?'0.08':'1.5');
+  document.getElementById('commUnit').textContent = commType==='pct'?'%':'$';
+  document.getElementById('commPct').style.background    = commType==='pct'?'var(--card)':'transparent';
+  document.getElementById('commPct').style.color         = commType==='pct'?'var(--text)':'var(--sub)';
+  document.getElementById('commFixed').style.background  = commType==='fixed'?'var(--card)':'transparent';
+  document.getElementById('commFixed').style.color       = commType==='fixed'?'var(--text)':'var(--sub)';
+}
+initCommType();
 
 // ── Persist ───────────────────────────────────────
 function save(){localStorage.setItem(S,JSON.stringify(trades));localStorage.setItem(SN,String(nid));}
@@ -272,14 +286,21 @@ function saveSymbol(sym){
 // ── Helpers ───────────────────────────────────────
 function fmt(n,d=0){return(n<0?'-':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d})}
 function fmtDate(k){const[y,m,d]=k.split('-');return`${+d}/${+m}/${y}`}
-function rate(){return(parseFloat(document.getElementById('commRate').value)||0)/100}
+function rate(){
+  const v=parseFloat(document.getElementById('commRate').value)||0;
+  return commType==='pct'?v/100:null; // null = fixed per trade
+}
+function calcComm(vol){
+  const v=parseFloat(document.getElementById('commRate').value)||0;
+  return commType==='pct'?vol*(v/100):v;
+}
 function weekKey(k){const d=new Date(k);const day=d.getDay();const mon=new Date(d);mon.setDate(d.getDate()-((day+1)%7));return mon.toISOString().split('T')[0];}
 
 function calcStats(list){
   let vol=0,comm=0,gross=0;
   const bt={};
   list.forEach(t=>{
-    const v=t.qty*t.price;vol+=v;comm+=v*rate();
+    const v=t.qty*t.price;vol+=v;comm+=calcComm(v);
     if(!bt[t.sym])bt[t.sym]={b:[],s:[]};
     bt[t.sym][t.act==='buy'?'b':'s'].push({q:t.qty,p:t.price});
   });
@@ -458,7 +479,6 @@ function switchTab(t){
 // ── Export / Share ────────────────────────────────
 function exportExcel(){
   const headers=['תאריך','שעה','סימבול','פעולה','כמות','מחיר','ערך כולל','עמלה'];
-  const r=rate();
   const rows=trades.map(t=>{const vol=t.qty*t.price;return[t.date,t.ts||'',t.sym,t.act==='buy'?'קנייה':'מכירה',t.qty,t.price,vol.toFixed(2),(vol*r).toFixed(2)];});
   const csv='\uFEFF'+[headers,...rows].map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
   const a=document.createElement('a');
@@ -638,6 +658,15 @@ document.addEventListener('click',function(e){
   if(!btn)return;
   const action=btn.getAttribute('data-action');
 
+  if(action==='comm-type'){
+    commType=btn.getAttribute('data-type');
+    localStorage.setItem(SCT,commType);
+    localStorage.removeItem(SC); // reset to default for new type
+    document.getElementById('commRate').value=commType==='pct'?'0.08':'1.5';
+    initCommType();
+    render();
+    return;
+  }
   if(action==='open-fav'){openFavModal();return;}
   if(action==='close-fav'){document.getElementById('favModal').style.display='none';return;}
   if(action==='add-fav'){addFav();return;}
