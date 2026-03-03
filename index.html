@@ -154,9 +154,31 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 .fav-item-sym{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text);flex:1}
 .fav-item-del{background:none;border:none;font-size:17px;color:#ccc;cursor:pointer;padding:0 4px;line-height:1}
 .modal-close{width:100%;margin-top:14px;padding:13px;background:var(--bg);border:none;border-radius:12px;font-size:15px;font-weight:700;color:var(--text);cursor:pointer;font-family:var(--sans)}
+
+/* sync dot */
+.sync-dot{width:7px;height:7px;border-radius:50%;background:#ccc;flex-shrink:0;transition:background .3s;display:inline-block}
+.sync-dot.saving{background:var(--orange);animation:pulse .6s infinite}
+.sync-dot.saved{background:var(--green)}
+/* login */
+.login-screen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:20px;padding:30px}
 </style>
 </head>
 <body>
+
+<!-- Login Screen -->
+<div class="login-screen" id="loginScreen">
+  <div style="font-size:52px">📈</div>
+  <div style="font-size:26px;font-weight:700;color:var(--text)">TradeSnap</div>
+  <div style="font-size:14px;color:var(--sub);text-align:center;line-height:1.6">יומן מסחר חכם<br>הנתונים שלך נשמרים בענן</div>
+  <button id="btnGoogle" style="display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:14px 24px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--sans);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,.08);width:100%;justify-content:center;max-width:300px">
+    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="22" height="22" alt="">
+    התחבר עם Google
+  </button>
+  <div style="font-size:10px;color:#bbb;text-align:center;max-width:280px;line-height:1.5">⚖️ לצרכי תיעוד בלבד · אינו מהווה ייעוץ השקעות<br>פותח על ידי דורון שרייבמן</div>
+</div>
+
+<!-- App -->
+<div id="appContent" style="display:none">
 
 <!-- Header -->
 <div class="hdr">
@@ -168,6 +190,14 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
     <div class="hdr-date" id="hdrDate"></div>
     <div class="market-pill closed" id="marketPill"><span class="dot"></span><span id="marketTxt">טוען...</span></div>
   </div>
+</div>
+
+<!-- User bar -->
+<div style="display:flex;align-items:center;gap:8px;padding:0 16px 8px">
+  <span class="sync-dot saved" id="syncDot"></span>
+  <img id="userAvatar" src="" width="24" height="24" style="border-radius:50%;object-fit:cover" alt="">
+  <span id="userName" style="font-size:11px;color:var(--sub);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  <button onclick="doSignOut()" style="font-size:11px;color:#bbb;background:none;border:none;cursor:pointer;font-family:var(--sans)">התנתק</button>
 </div>
 
 <!-- Tabs -->
@@ -192,7 +222,7 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
     <div class="field-row">
       <span class="field-label">סימבול</span>
       <input class="field-input" id="iSym" placeholder="ONDS" maxlength="8"
-             inputmode="text" autocomplete="off" autocorrect="off" spellcheck="false" list="symList">
+             inputmode="text" autocomplete="new-password" autocorrect="off" spellcheck="false" list="symList">
       <datalist id="symList"></datalist>
     </div>
     <div class="field-row">
@@ -236,6 +266,8 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
   </div>
 </div>
 
+</div><!-- /appContent -->
+
 <!-- Fav Modal -->
 <div class="modal-overlay" id="favModal" style="display:none">
   <div class="modal">
@@ -250,14 +282,174 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
   </div>
 </div>
 
+<!-- ======================= -->
+<!-- FIREBASE MODULE SCRIPT  -->
+<!-- ======================= -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  signInWithPopup,
+  setPersistence,
+  browserLocalPersistence,
+  signOut as fbSignOut, 
+  onAuthStateChanged 
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { 
+  getFirestore, 
+  doc, 
+  getDoc, 
+  setDoc 
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAKKoWUiVOdKz_PKAdDwHQjZoaynnS7O-Q",
+  authDomain: "tradesnap-5a5a0.firebaseapp.com",
+  projectId: "tradesnap-5a5a0",
+  storageBucket: "tradesnap-5a5a0.firebasestorage.app",
+  messagingSenderId: "321736350081",
+  appId: "1:321736350081:web:b5c3fb73642bfd7e9e3080"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+let currentUser = null;
+let saveTimer = null;
+
+// הגדרת שמירה על חיבור פעיל
+setPersistence(auth, browserLocalPersistence);
+
+// כניסה עם גוגל
+document.getElementById('btnGoogle').addEventListener('click', async () => {
+  const provider = new GoogleAuthProvider();
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  try {
+    if (isMobile) {
+      await signInWithRedirect(auth, provider);
+    } else {
+      await signInWithPopup(auth, provider);
+    }
+  } catch(e) { 
+    alert('שגיאת התחברות: ' + e.message); 
+  }
+});
+
+// יציאה
+window.doSignOut = async () => { 
+  if(confirm('להתנתק?')) await fbSignOut(auth); 
+};
+
+// Handle redirect result
+getRedirectResult(auth).then(r => {
+  if(r && r.user) console.log('redirect ok:', r.user.email);
+}).catch(e => console.error('redirect error:', e));
+
+// האזנה למצב המשתמש וטעינת נתונים
+onAuthStateChanged(auth, async user => {
+  if(user) {
+    currentUser = user;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appContent').style.display = 'block';
+    document.getElementById('userAvatar').src = user.photoURL || '';
+    document.getElementById('userName').textContent = user.displayName || user.email;
+    await loadData();
+  } else {
+    currentUser = null;
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('appContent').style.display = 'none';
+    window.trades = []; window.nid = 1; window.knownSyms = []; window.favSyms = [];
+  }
+});
+
+// פונקציית טעינה מ-Firestore
+async function loadData() {
+  if(!currentUser) return;
+  setSyncDot('saving');
+  try {
+    const userDocRef = doc(db, 'users', currentUser.uid);
+    const snap = await getDoc(userDocRef);
+    
+    if(snap.exists()) {
+      const d = snap.data();
+      // סנכרון למשתנים הגלובליים
+      window.trades = d.trades || [];
+      window.nid = d.nid || 1;
+      window.knownSyms = d.knownSyms || [];
+      window.favSyms = d.favSyms || [];
+      window.commType = d.commType || 'pct';
+      
+      if(d.commRate) {
+        const rateEl = document.getElementById('commRate');
+        if(rateEl) rateEl.value = d.commRate;
+      }
+    }
+    
+    // רענון ה-UI (קריאה לפונקציות מהסקריפט השני)
+    if(typeof window.initCommType === 'function') window.initCommType();
+    const symList = document.getElementById('symList');
+    if(symList) symList.innerHTML = window.knownSyms.map(s => `<option value="${s}">`).join('');
+    if(typeof window.renderFavBar === 'function') window.renderFavBar();
+    if(typeof window.render === 'function') window.render();
+    
+    setSyncDot('saved');
+  } catch(e) { 
+    console.error("Error loading:", e);
+    setSyncDot('');
+  }
+}
+
+// פונקציית שמירה אוטומטית ל-Firestore
+window._cloudSave = function() {
+  if(!currentUser) return;
+  setSyncDot('saving');
+  clearTimeout(saveTimer);
+  
+  saveTimer = setTimeout(async () => {
+    try {
+      const userDocRef = doc(db, 'users', currentUser.uid);
+      const rateVal = document.getElementById('commRate')?.value || '0.08';
+      
+      await setDoc(userDocRef, {
+        trades: window.trades,
+        nid: window.nid,
+        knownSyms: window.knownSyms,
+        favSyms: window.favSyms,
+        commType: window.commType,
+        commRate: rateVal,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      
+      setSyncDot('saved');
+    } catch(e) { 
+      console.error("Error saving:", e);
+      setSyncDot('');
+    }
+  }, 1000);
+};
+
+function setSyncDot(s) { 
+  const dot = document.getElementById('syncDot');
+  if(dot) dot.className = 'sync-dot ' + s; 
+}
+</script>
+
+<!-- ======================= -->
+<!-- UI LOGIC SCRIPT         -->
+<!-- ======================= -->
 <script>
-// ── Storage keys ─────────────────────────────────
+// ── Storage keys & Globals ───────────────────────
+// השתמשנו ב-var כדי שהמשתנים יהיו גלובליים (על window) ויהיו נגישים מהמודול של Firebase
 const S='tlog7',SN='tlog7_nid',SC='tlog7_comm',SSYM='tlog7_syms',SFAV='tlog7_favs',SCT='tlog7_commtype';
-let trades    = JSON.parse(localStorage.getItem(S)    ||'[]');
-let nid       = parseInt(localStorage.getItem(SN)     ||'1');
-let knownSyms = JSON.parse(localStorage.getItem(SSYM) ||'[]');
-let favSyms   = JSON.parse(localStorage.getItem(SFAV) ||'[]');
-let tab='today', act='buy', editId=null;
+var trades    = JSON.parse(localStorage.getItem(S)    ||'[]');
+var nid       = parseInt(localStorage.getItem(SN)     ||'1');
+var knownSyms = JSON.parse(localStorage.getItem(SSYM) ||'[]');
+var favSyms   = JSON.parse(localStorage.getItem(SFAV) ||'[]');
+var tab='today', act='buy', editId=null;
+var commType=localStorage.getItem(SCT)||'pct';
 
 const todayKey = new Date().toISOString().split('T')[0];
 document.getElementById('hdrDate').textContent =
@@ -265,7 +457,7 @@ document.getElementById('hdrDate').textContent =
 
 const sc=localStorage.getItem(SC);
 if(sc) document.getElementById('commRate').value=sc;
-let commType=localStorage.getItem(SCT)||'pct';
+
 function initCommType(){
   document.getElementById('commRate').value = localStorage.getItem(SC)||(commType==='pct'?'0.08':'1.5');
   document.getElementById('commUnit').textContent = commType==='pct'?'%':'$';
@@ -277,9 +469,17 @@ function initCommType(){
 initCommType();
 
 // ── Persist ───────────────────────────────────────
-function save(){localStorage.setItem(S,JSON.stringify(trades));localStorage.setItem(SN,String(nid));}
+function save(){
+  localStorage.setItem(S,JSON.stringify(trades));
+  localStorage.setItem(SN,String(nid));
+  if(window._cloudSave) window._cloudSave();
+}
 function saveSymbol(sym){
-  if(!knownSyms.includes(sym)){knownSyms.unshift(sym);if(knownSyms.length>50)knownSyms=knownSyms.slice(0,50);localStorage.setItem(SSYM,JSON.stringify(knownSyms));}
+  if(!knownSyms.includes(sym)){
+    knownSyms.unshift(sym);
+    if(knownSyms.length>50) knownSyms=knownSyms.slice(0,50);
+    localStorage.setItem(SSYM,JSON.stringify(knownSyms));
+  }
   document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
 }
 
@@ -288,7 +488,7 @@ function fmt(n,d=0){return(n<0?'-':'')+'$'+Math.abs(n).toLocaleString('en-US',{m
 function fmtDate(k){const[y,m,d]=k.split('-');return`${+d}/${+m}/${y}`}
 function rate(){
   const v=parseFloat(document.getElementById('commRate').value)||0;
-  return commType==='pct'?v/100:null; // null = fixed per trade
+  return commType==='pct'?v/100:null; 
 }
 function calcComm(vol){
   const v=parseFloat(document.getElementById('commRate').value)||0;
@@ -341,12 +541,9 @@ function calcBySymbol(list){
   });
 }
 
-// P&L for a single trade card (based on matched buys/sells for same symbol)
 function tradePnL(t, allTrades) {
-  if(t.act==='buy') return null; // show P&L only on sell cards
+  if(t.act==='buy') return null;
   const symTrades = allTrades.filter(x=>x.sym===t.sym && x.date===t.date);
-  // only trades up to and including this one (by id desc order means earlier = higher id? no, unshift means lower id = later)
-  // just show symbol-level P&L on sell cards
   const buys  = symTrades.filter(x=>x.act==='buy');
   const sells = symTrades.filter(x=>x.act==='sell');
   if(!buys.length||!sells.length) return null;
@@ -369,7 +566,7 @@ function updateMarket(){
   const h=ny.getHours(),m=ny.getMinutes(),day=ny.getDay();
   const mins=h*60+m;
   const isWeekday=day>=1&&day<=5;
-  const isOpen=isWeekday&&mins>=570&&mins<960; // 9:30–16:00
+  const isOpen=isWeekday&&mins>=570&&mins<960; 
   const pill=document.getElementById('marketPill');
   const txt=document.getElementById('marketTxt');
   pill.className='market-pill '+(isOpen?'open':'closed');
@@ -387,14 +584,14 @@ updateMarket();
 setInterval(updateMarket,60000);
 
 // ── Entry actions ─────────────────────────────────
-function setAct(a){
+window.setAct = function(a){
   act=a;
   document.getElementById('btnBuy').className ='act-btn'+(a==='buy'?' on-buy':'');
   document.getElementById('btnSell').className='act-btn'+(a==='sell'?' on-sell':'');
-}
-function flipAct(){setAct(act==='buy'?'sell':'buy');}
+};
+window.flipAct = function(){setAct(act==='buy'?'sell':'buy');};
 
-function submitTrade(){
+window.submitTrade = function(){
   const sym=document.getElementById('iSym').value.trim().toUpperCase();
   const qty=parseFloat(document.getElementById('iQty').value);
   const price=parseFloat(document.getElementById('iPrice').value);
@@ -413,7 +610,7 @@ function submitTrade(){
     saveSymbol(sym);
   }
   save();clearForm();render();
-}
+};
 
 function clearForm(){
   document.getElementById('iSym').value='';
@@ -435,13 +632,13 @@ function startEdit(id){
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
-function cancelEdit(){
+window.cancelEdit = function(){
   editId=null;clearForm();
   document.getElementById('editBanner').style.display='none';
   document.getElementById('addBtn').textContent='הוסף פעולה ＋';
   document.getElementById('entryPanel').classList.remove('editing');
   setAct('buy');
-}
+};
 
 function copyTrade(id){
   const t=trades.find(x=>x.id===id);if(!t)return;
@@ -459,14 +656,14 @@ function shake(id){
   el.style.color='var(--red)';setTimeout(()=>el.style.color='',500);
 }
 
-function clearTab(){
+window.clearTab = function(){
   const msg=tab==='today'?'למחוק את כל פעולות היום?':'למחוק את כל ההיסטוריה?';
   if(!confirm(msg))return;
   trades=tab==='today'?trades.filter(t=>t.date!==todayKey):trades.filter(t=>t.date===todayKey);
   save();render();
-}
+};
 
-function switchTab(t){
+window.switchTab = function(t){
   tab=t;
   document.getElementById('tabToday').classList.toggle('on',t==='today');
   document.getElementById('tabHistory').classList.toggle('on',t==='history');
@@ -474,25 +671,26 @@ function switchTab(t){
   document.getElementById('commRow').style.display=t==='today'?'':'none';
   document.getElementById('barLbl').textContent=t==='today'?'רווח/הפסד היום':'סה"כ היסטוריה';
   render();
-}
+};
 
 // ── Export / Share ────────────────────────────────
-function exportExcel(){
+window.exportExcel = function(){
   const headers=['תאריך','שעה','סימבול','פעולה','כמות','מחיר','ערך כולל','עמלה'];
-  const rows=trades.map(t=>{const vol=t.qty*t.price;return[t.date,t.ts||'',t.sym,t.act==='buy'?'קנייה':'מכירה',t.qty,t.price,vol.toFixed(2),(vol*r).toFixed(2)];});
+  const r = rate();
+  const rows=trades.map(t=>{const vol=t.qty*t.price;return[t.date,t.ts||'',t.sym,t.act==='buy'?'קנייה':'מכירה',t.qty,t.price,vol.toFixed(2),calcComm(vol).toFixed(2)];});
   const csv='\uFEFF'+[headers,...rows].map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
   a.download=`trades_${todayKey}.csv`;a.click();
-}
+};
 
-function shareWA(){
+window.shareWA = function(){
   const td=trades.filter(t=>t.date===todayKey);
   if(!td.length){alert('אין פעולות היום');return;}
   const s=calcStats(td),byS=calcBySymbol(td);
   let msg=`📋 *יומן עסקאות - ${fmtDate(todayKey)}*\n\n`;
   byS.forEach(x=>{
-    msg+=`*${x.sym}*  `;
+    msg+=`*${x.sym}* `;
     if(x.hasClosed) msg+=(x.net>=0?'✅ +':'❌ ')+fmt(Math.abs(x.net));
     else msg+='—';
     if(x.openQty>0) msg+=`  🟡 פתוח: ${x.openQty}`;
@@ -500,18 +698,18 @@ function shareWA(){
   });
   msg+=`\n💰 *נטו: ${s.net>=0?'+':''}${fmt(s.net)}*\n📊 ${td.length} פעולות  |  עמלות: ${fmt(s.comm)}`;
   window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
-}
+};
 
 // ── Favorites ─────────────────────────────────────
 function saveFavs(){localStorage.setItem(SFAV,JSON.stringify(favSyms));}
-function renderFavBar(){
+window.renderFavBar = function(){
   const bar=document.getElementById('favBar');
   if(!favSyms.length){
     bar.innerHTML=`<button class="fav-manage" data-action="open-fav">⭐ הוסף מועדפים</button>`;return;
   }
   bar.innerHTML=favSyms.map(s=>`<button class="fav-chip" data-fav="${s}" data-action="pick-fav">${s}</button>`).join('')
     +`<button class="fav-manage" data-action="open-fav">✏️</button>`;
-}
+};
 function selectFav(sym){
   document.getElementById('iSym').value=sym;
   document.querySelectorAll('.fav-chip').forEach(b=>b.classList.toggle('selected',b.dataset.fav===sym));
@@ -539,10 +737,11 @@ function addFav(){
   if(favSyms.includes(sym)){document.getElementById('favInput').value='';return;}
   if(favSyms.length>=10){alert('מקסימום 10 ניירות מועדפים');return;}
   favSyms.push(sym);saveFavs();
+  if(window._cloudSave) window._cloudSave();
   document.getElementById('favInput').value='';
   renderFavList();renderFavBar();
 }
-function removeFav(i){favSyms.splice(i,1);saveFavs();renderFavList();renderFavBar();}
+function removeFav(i){favSyms.splice(i,1);saveFavs();if(window._cloudSave) window._cloudSave();renderFavList();renderFavBar();}
 
 // ── Render ────────────────────────────────────────
 function cardHTML(t, allTrades){
@@ -592,7 +791,7 @@ function renderSymSummary(list){
   wrap.innerHTML=html;
 }
 
-function render(){
+window.render = function(){
   const listEl=document.getElementById('list');
   let html='';
   if(tab==='today'){
@@ -608,12 +807,10 @@ function render(){
     if(!hist.length){
       html='<div class="empty">אין היסטוריה עדיין<br><span style="font-size:12px;color:#ccc">פעולות היום יועברו לכאן מחר</span></div>';
     } else {
-      // Group by date, then by week
       const byDate={};
       hist.forEach(t=>{if(!byDate[t.date])byDate[t.date]=[];byDate[t.date].push(t);});
       const sortedDates=Object.keys(byDate).sort().reverse();
 
-      // Group dates by week
       const byWeek={};
       sortedDates.forEach(dk=>{const wk=weekKey(dk);if(!byWeek[wk])byWeek[wk]=[];byWeek[wk].push(dk);});
       const sortedWeeks=Object.keys(byWeek).sort().reverse();
@@ -640,7 +837,7 @@ function render(){
     renderBar(hist);
   }
   listEl.innerHTML=html;
-}
+};
 
 function renderBar(list){
   const s=calcStats(list);
@@ -661,9 +858,10 @@ document.addEventListener('click',function(e){
   if(action==='comm-type'){
     commType=btn.getAttribute('data-type');
     localStorage.setItem(SCT,commType);
-    localStorage.removeItem(SC); // reset to default for new type
+    localStorage.removeItem(SC);
     document.getElementById('commRate').value=commType==='pct'?'0.08':'1.5';
     initCommType();
+    if(window._cloudSave) window._cloudSave();
     render();
     return;
   }
@@ -688,8 +886,12 @@ document.addEventListener('click',function(e){
 
 document.getElementById('favModal').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
 document.getElementById('favInput').addEventListener('keydown',e=>{if(e.key==='Enter')addFav();});
-document.getElementById('iPrice').addEventListener('keydown',e=>{if(e.key==='Enter')submitTrade();});
-document.getElementById('commRate').addEventListener('input',function(){localStorage.setItem(SC,this.value);render();});
+document.getElementById('iPrice').addEventListener('keydown',e=>{if(e.key==='Enter')window.submitTrade();});
+document.getElementById('commRate').addEventListener('input',function(){
+  localStorage.setItem(SC,this.value);
+  if(window._cloudSave) window._cloudSave();
+  render();
+});
 
 // ── Init ──────────────────────────────────────────
 document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
