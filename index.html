@@ -154,9 +154,31 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
 .fav-item-sym{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text);flex:1}
 .fav-item-del{background:none;border:none;font-size:17px;color:#ccc;cursor:pointer;padding:0 4px;line-height:1}
 .modal-close{width:100%;margin-top:14px;padding:13px;background:var(--bg);border:none;border-radius:12px;font-size:15px;font-weight:700;color:var(--text);cursor:pointer;font-family:var(--sans)}
+
+/* sync dot */
+.sync-dot{width:7px;height:7px;border-radius:50%;background:#ccc;flex-shrink:0;transition:background .3s;display:inline-block}
+.sync-dot.saving{background:var(--orange);animation:pulse .6s infinite}
+.sync-dot.saved{background:var(--green)}
+/* login */
+.login-screen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:20px;padding:30px}
 </style>
 </head>
 <body>
+
+<!-- Login Screen -->
+<div class="login-screen" id="loginScreen">
+  <div style="font-size:52px">📈</div>
+  <div style="font-size:26px;font-weight:700;color:var(--text)">TradeSnap</div>
+  <div style="font-size:14px;color:var(--sub);text-align:center;line-height:1.6">יומן מסחר חכם<br>הנתונים שלך נשמרים בענן</div>
+  <button id="btnGoogle" style="display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:14px 24px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--sans);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,.08);width:100%;justify-content:center;max-width:300px">
+    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="22" height="22" alt="">
+    התחבר עם Google
+  </button>
+  <div style="font-size:10px;color:#bbb;text-align:center;max-width:280px;line-height:1.5">⚖️ לצרכי תיעוד בלבד · אינו מהווה ייעוץ השקעות<br>פותח על ידי דורון שרייבמן</div>
+</div>
+
+<!-- App -->
+<div id="appContent" style="display:none">
 
 <!-- Header -->
 <div class="hdr">
@@ -168,6 +190,14 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
     <div class="hdr-date" id="hdrDate"></div>
     <div class="market-pill closed" id="marketPill"><span class="dot"></span><span id="marketTxt">טוען...</span></div>
   </div>
+</div>
+
+<!-- User bar -->
+<div style="display:flex;align-items:center;gap:8px;padding:0 16px 8px">
+  <span class="sync-dot saved" id="syncDot"></span>
+  <img id="userAvatar" src="" width="24" height="24" style="border-radius:50%;object-fit:cover" alt="">
+  <span id="userName" style="font-size:11px;color:var(--sub);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  <button onclick="doSignOut()" style="font-size:11px;color:#bbb;background:none;border:none;cursor:pointer;font-family:var(--sans)">התנתק</button>
 </div>
 
 <!-- Tabs -->
@@ -192,7 +222,7 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
     <div class="field-row">
       <span class="field-label">סימבול</span>
       <input class="field-input" id="iSym" placeholder="ONDS" maxlength="8"
-             inputmode="text" autocomplete="off" autocorrect="off" spellcheck="false" list="symList">
+             inputmode="text" autocomplete="new-password" autocorrect="off" spellcheck="false" list="symList">
       <datalist id="symList"></datalist>
     </div>
     <div class="field-row">
@@ -236,6 +266,8 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
   </div>
 </div>
 
+</div><!-- /appContent -->
+
 <!-- Fav Modal -->
 <div class="modal-overlay" id="favModal" style="display:none">
   <div class="modal">
@@ -250,6 +282,85 @@ body{background:var(--bg);font-family:var(--sans);max-width:430px;margin:0 auto;
   </div>
 </div>
 
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, doc, getDoc, setDoc }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAKKoWUiVOdKz_PKAdDwHQjZoaynnS7O-Q",
+  authDomain: "tradesnap-5a5a0.firebaseapp.com",
+  projectId: "tradesnap-5a5a0",
+  storageBucket: "tradesnap-5a5a0.firebasestorage.app",
+  messagingSenderId: "321736350081",
+  appId: "1:321736350081:web:b5c3fb73642bfd7e9e3080"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+let currentUser = null, saveTimer = null;
+
+// Auth
+document.getElementById('btnGoogle').addEventListener('click', async () => {
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch(e){ alert('שגיאה: ' + e.message); }
+});
+window.doSignOut = async () => { if(confirm('להתנתק?')) await fbSignOut(auth); };
+
+onAuthStateChanged(auth, async user => {
+  if(user){
+    currentUser = user;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appContent').style.display = 'block';
+    document.getElementById('userAvatar').src = user.photoURL || '';
+    document.getElementById('userName').textContent = user.displayName || user.email;
+    await loadData();
+  } else {
+    currentUser = null;
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('appContent').style.display = 'none';
+    trades=[]; nid=1; knownSyms=[]; favSyms=[];
+  }
+});
+
+async function loadData(){
+  if(!currentUser) return;
+  setSyncDot('saving');
+  try {
+    const snap = await getDoc(doc(db,'users',currentUser.uid));
+    if(snap.exists()){
+      const d = snap.data();
+      trades = d.trades || []; nid = d.nid || 1;
+      knownSyms = d.knownSyms || []; favSyms = d.favSyms || [];
+      commType = d.commType || 'pct';
+      if(d.commRate) document.getElementById('commRate').value = d.commRate;
+    }
+  } catch(e){ console.error(e); }
+  initCommType();
+  document.getElementById('symList').innerHTML = knownSyms.map(s=>`<option value="${s}">`).join('');
+  renderFavBar(); render(); setSyncDot('saved');
+}
+
+function setSyncDot(s){ document.getElementById('syncDot').className = 'sync-dot ' + s; }
+
+window._cloudSave = function(){
+  if(!currentUser) return;
+  setSyncDot('saving');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await setDoc(doc(db,'users',currentUser.uid), {
+        trades, nid, knownSyms, favSyms, commType,
+        commRate: document.getElementById('commRate').value,
+        updatedAt: new Date().toISOString()
+      });
+      setSyncDot('saved');
+    } catch(e){ console.error(e); setSyncDot(''); }
+  }, 800);
+};
+</script>
 <script>
 // ── Storage keys ─────────────────────────────────
 const S='tlog7',SN='tlog7_nid',SC='tlog7_comm',SSYM='tlog7_syms',SFAV='tlog7_favs',SCT='tlog7_commtype';
@@ -277,7 +388,7 @@ function initCommType(){
 initCommType();
 
 // ── Persist ───────────────────────────────────────
-function save(){localStorage.setItem(S,JSON.stringify(trades));localStorage.setItem(SN,String(nid));}
+function save(){localStorage.setItem(S,JSON.stringify(trades));localStorage.setItem(SN,String(nid));if(window._cloudSave)window._cloudSave();}
 function saveSymbol(sym){
   if(!knownSyms.includes(sym)){knownSyms.unshift(sym);if(knownSyms.length>50)knownSyms=knownSyms.slice(0,50);localStorage.setItem(SSYM,JSON.stringify(knownSyms));}
   document.getElementById('symList').innerHTML=knownSyms.map(s=>`<option value="${s}">`).join('');
