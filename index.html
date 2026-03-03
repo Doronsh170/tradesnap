@@ -304,13 +304,22 @@ let currentUser = null, saveTimer = null;
 
 // Auth
 document.getElementById('btnGoogle').addEventListener('click', async () => {
-  try { await signInWithRedirect(auth, new GoogleAuthProvider()); }
-  catch(e){ alert('שגיאה: ' + e.message); }
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  try {
+    await setPersistence(auth, browserLocalPersistence);
+    if(isMobile){
+      await signInWithRedirect(auth, new GoogleAuthProvider());
+    } else {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    }
+  } catch(e){ alert('שגיאה: ' + e.message); }
 });
 window.doSignOut = async () => { if(confirm('להתנתק?')) await fbSignOut(auth); };
 
 // Handle redirect result first (iOS Safari)
-getRedirectResult(auth).catch(e => console.error('redirect error:', e));
+getRedirectResult(auth).then(r => {
+  if(r && r.user) console.log('redirect ok:', r.user.email);
+}).catch(e => console.error('redirect error:', e));
 
 onAuthStateChanged(auth, async user => {
   if(user){
